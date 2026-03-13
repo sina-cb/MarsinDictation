@@ -1,0 +1,53 @@
+# ── Windows (.NET / WinUI 3) ─────────────────────────────────
+bin/
+obj/
+*.user
+*.suo
+*.pdb
+
+# ── macOS / iOS (Swift / Xcode) ──────────────────────────────
+mac/build/
+ios/build/
+*.xcuserstate
+*.xcworkspace/xcuserdata/
+DerivedData/
+*.dSYM
+*.ipa
+
+# ── Android (Kotlin / Gradle) ────────────────────────────────
+android/app/build/
+android/.gradle/
+*.apk
+*.aab
+local.properties
+
+# ── IDE & Editors ────────────────────────────────────────────
+.vs/
+.vscode/
+.idea/
+*.swp
+*.sln.docstates
+
+# ── OS Files ─────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+Desktop.ini
+ehthumbs.db
+
+# ── Secrets & Local Config ───────────────────────────────────
+*.env
+.env.*
+secrets/
+
+# ── Package Managers ─────────────────────────────────────────
+node_modules/
+packages/
+
+# ── Deploy & Build Artifacts ─────────────────────────────────
+tmp/
+logs/
+deploy/__pycache__/
+*.pyc
+
+# ── Agent Workspace ──────────────────────────────────────────
+.gemini/
