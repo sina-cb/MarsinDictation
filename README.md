@@ -1,34 +1,40 @@
 # MarsinDictation
 
-**AI-powered system-wide dictation for every platform.**
+**Lightweight AI-powered dictation for desktop and mobile.**
 
-MarsinDictation adds a virtual keyboard that works anywhere in your operating system — press a shortcut, speak naturally, and your words appear as polished text in any app. Powered by state-of-the-art speech recognition and AI post-processing, it removes filler words, fixes grammar, and adapts formatting to context — automatically.
+Press a hotkey, speak naturally, and polished text appears at your cursor. Powered by speech recognition with AI post-processing that removes filler words, fixes grammar, and applies punctuation automatically.
 
 ## Platforms
 
 | Platform | Activation | Status |
 |----------|-----------|--------|
-| **Windows** | `Ctrl + Win` (push-to-talk) | 🔨 In Development |
-| **macOS** | `⌃ + ⌘` (push-to-talk) | 📋 Planned |
+| **Windows** | `Ctrl + Alt + Space` (toggle) | 🔨 Design Complete |
+| **macOS** | `Control + Option + Space` (toggle) | 🔨 Design Complete |
 | **iPhone / iPad** | Custom keyboard with dictation button | 📋 Planned |
 | **Android** | Custom keyboard with dictation button | 📋 Planned |
 
 ## Key Features
 
-- **System-Wide Dictation** — Dictate into *any* text field in *any* app. Hold the hotkey, speak, release — text appears instantly.
+- **System-Wide Dictation** — Dictate into any text field in most standard apps. Toggle the hotkey, speak, toggle again — text appears at your cursor.
 - **AI Auto-Editing** — Filler words ("um", "uh") are stripped, grammar is corrected, and punctuation is applied automatically.
-- **Context-Aware Formatting** — Output adapts to where you're typing: formal for email, casual for chat, syntax-aware for code editors.
-- **Whisper Mode** — Accurate transcription even when speaking quietly in shared spaces.
-- **100+ Languages** — Automatic language detection with seamless switching.
-- **Custom Dictionary** — Add names, jargon, and domain-specific terms for higher accuracy.
-- **Snippets** — Voice shortcuts that expand into longer text (e.g., say "my email" → `sina@example.com`).
-- **Command Mode** — Edit text with your voice: "make this more formal", "summarize this", "fix the grammar".
-- **Privacy Mode** — Zero data retention option; audio is never stored or used for training.
+- **Recovery Hotkey** — If text injection fails, press `Alt+Shift+Z` (Windows) or `Option+Shift+Z` (macOS) to paste your last dictation into any text field.
+- **Dual Transcription Providers** — OpenAI API for best accuracy, or LocalAI for free offline private transcription.
+- **Privacy-First** — Audio is never retained after transcription. API keys use platform-secure storage (DPAPI / Keychain). No telemetry.
 
-## Architecture
+## Project Structure
 
-See [`.agent/01_designs/00_repo_structure.md`](.agent/01_designs/00_repo_structure.md) for the full repository layout and technology decisions.
+This project uses an `.agent/` directory for all governance, design, and project tracking:
+
+```
+.agent/
+├── 00_gol/          # Rules: codex, privacy, git, build & deploy
+├── 01_designs/      # Design documents for each platform
+├── 02_projects/     # Project plans with task checklists
+└── 03_reports/      # Session reports summarizing completed work
+```
+
+Start with [`.agent/00_gol/00_codex.md`](.agent/00_gol/00_codex.md) — it is the onboarding entry point for contributors and AI agents, covering contribution rules, coding standards, and references to all other documents.
 
 ## License
 
-Proprietary — All rights reserved.
+MIT
