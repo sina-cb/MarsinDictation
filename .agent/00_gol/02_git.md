@@ -6,14 +6,60 @@ This document defines the version control rules for MarsinDictation.
 
 ## Branch Strategy
 
+All development work happens in feature branches, not on `main`.
+
 | Branch | Purpose |
 |--------|---------|
-| `main` | Stable, releasable code. Every commit on main should build and pass tests. |
-| `dev` | Active development. Features and fixes land here first. |
-| `feature/<name>` | Short-lived branches for individual features or fixes. Merged into `dev`. |
+| `main` | Stable, tested, releasable. Every commit builds and passes tests. |
+| `dev/<feature_name>` | Active development for a specific feature or platform milestone. |
 
-- `main` is protected. No direct commits — merge from `dev` only when the build is green and acceptance criteria are met.
-- Feature branches should be small and focused. Avoid long-lived branches.
+### Workflow
+
+1. **Create a feature branch** from `main`:
+   ```
+   git checkout -b dev/win_v0 main
+   ```
+
+2. **Commit freely** on the feature branch — small, frequent commits are fine. These are working history.
+
+3. **When the feature is complete and tested**, squash merge into `main`:
+   ```
+   git checkout main
+   git merge --squash dev/win_v0
+   git commit -m "feat(win): implement v0 dictation app"
+   git push origin main
+   ```
+
+4. **Delete the feature branch** after merge:
+   ```
+   git branch -d dev/win_v0
+   git push origin --delete dev/win_v0
+   ```
+
+### Why squash merge?
+
+- `main` stays clean — one commit per completed feature, easy to bisect and review.
+- Feature branches keep messy WIP history where it belongs — out of `main`.
+- Each `main` commit represents a tested, working milestone.
+
+### Parallel work
+
+Multiple agents or contributors can work on separate `dev/` branches simultaneously without conflict:
+
+```
+dev/win_v0      ← Agent A: Windows v0 implementation
+dev/mac_v0      ← Agent B: macOS v0 implementation
+dev/deploy      ← Agent C: deploy.py scaffolding
+```
+
+Each branch is independent and merges into `main` when its work is done and validated. If two branches touch the same files, conflicts are resolved at merge time.
+
+### Rules
+
+- `main` is protected. No direct commits — squash merge from `dev/` branches only.
+- Feature branches should be focused. One platform milestone or one logical feature per branch.
+- Do not let feature branches live longer than necessary. Merge when done, delete after.
+- If a feature branch falls behind `main`, rebase or merge `main` into it before merging back.
 
 ---
 
