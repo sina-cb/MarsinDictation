@@ -26,6 +26,12 @@ python devtool/deploy.py --test --filter UserVoice --verbose  # Run one test wit
 
 If no command is given, the OS is auto-detected.
 
+## Helper Scripts
+
+| Script | Description |
+|--------|-------------|
+| `build_icon.ps1` | A PowerShell script that converts a `256x256` PNG icon into a multi-resolution `.ico` file (16x16, 32x32, 48x48, 64x64, 128x128, 256x256) using High-Quality Bicubic interpolation. This ensures crisp rendering in the Windows taskbar, system tray, and desktop shortcut. Called automatically by `deploy.py` during builds. |
+
 ## Modes
 
 | Flag | Behavior |

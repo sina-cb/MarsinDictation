@@ -38,13 +38,15 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
-        // Load .env from repo/working directory
+        // Load .env — check multiple locations (dev repo, CWD, installed location)
         var envPath = System.IO.Path.Combine(
             System.IO.Directory.GetCurrentDirectory(), "..", ".env");
         EnvLoader.Load(System.IO.Path.GetFullPath(envPath));
-        // Also try CWD itself
         EnvLoader.Load(System.IO.Path.Combine(
             System.IO.Directory.GetCurrentDirectory(), ".env"));
+        EnvLoader.Load(System.IO.Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "MarsinDictation", ".env"));
 
         // Log file: %LOCALAPPDATA%/MarsinDictation/logs/app.log (truncated each launch)
         var logDir = System.IO.Path.Combine(
@@ -139,6 +141,8 @@ public partial class App : Application
 
         _trayController = new TrayController(
             onSettingsClicked: () => { _mainWindow.Show(); _mainWindow.Activate(); },
+            onCleanDataClicked: OnCleanDataClicked,
+            onOpenDataClicked: OnOpenDataClicked,
             onQuitClicked: () => { logger.LogInformation("Quit from tray"); DoShutdown(); }
         );
         _trayController.Initialize();
@@ -254,6 +258,68 @@ public partial class App : Application
             await Task.Delay(200);
             DoInjectText(_lastTranscription);
         });
+    }
+
+    // ── User data management ─────────────────────────────────
+
+    private void OnOpenDataClicked()
+    {
+        var appDataDir = System.IO.Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "MarsinDictation");
+            
+        if (System.IO.Directory.Exists(appDataDir))
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = appDataDir,
+                UseShellExecute = true
+            });
+        }
+    }
+
+    private void OnCleanDataClicked()
+    {
+        var appDataDir = System.IO.Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "MarsinDictation");
+
+        var result = System.Windows.MessageBox.Show(
+            $"This will permanently delete all user data from:\n{appDataDir}\n\nThis includes:\n• All transcripts history (JSONL)\n• Log files\n• Settings\n• Any cached data\n\nAre you sure you want to proceed?",
+            "Clean User Data",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+
+        if (result != MessageBoxResult.Yes) return;
+
+        var logger = _loggerFactory!.CreateLogger<App>();
+
+        try
+        {
+            // Clear in-memory transcript store
+            _transcriptStore?.Clear();
+
+            // Delete everything in the app data directory
+            if (System.IO.Directory.Exists(appDataDir))
+            {
+                foreach (var file in System.IO.Directory.GetFiles(appDataDir, "*", System.IO.SearchOption.AllDirectories))
+                {
+                    try { System.IO.File.Delete(file); } catch { }
+                }
+                foreach (var dir in System.IO.Directory.GetDirectories(appDataDir))
+                {
+                    try { System.IO.Directory.Delete(dir, true); } catch { }
+                }
+            }
+
+            logger.LogInformation("User data cleaned: {Dir}", appDataDir);
+            _statusWindow?.ShowToast("🧹 User data cleaned", ToastType.Idle, 2.0);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to clean user data");
+            _statusWindow?.ShowToast("⚠ Clean failed", ToastType.Idle, 3.0);
+        }
     }
 
     private void DoShutdown()

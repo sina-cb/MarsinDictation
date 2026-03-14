@@ -7,6 +7,7 @@
     <RootNamespace>MarsinDictation.App</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <ApplicationIcon>Assets\app-icon.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
 
@@ -19,6 +20,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\MarsinDictation.Core\MarsinDictation.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Assets\app-icon.ico" />
   </ItemGroup>
 
 </Project>

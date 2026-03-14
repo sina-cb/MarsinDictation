@@ -13,12 +13,16 @@ public sealed class TrayController : IDisposable
 {
     private TaskbarIcon? _trayIcon;
     private readonly Action _onSettingsClicked;
+    private readonly Action _onCleanDataClicked;
+    private readonly Action _onOpenDataClicked;
     private readonly Action _onQuitClicked;
     private bool _disposed;
 
-    public TrayController(Action onSettingsClicked, Action onQuitClicked)
+    public TrayController(Action onSettingsClicked, Action onCleanDataClicked, Action onOpenDataClicked, Action onQuitClicked)
     {
         _onSettingsClicked = onSettingsClicked;
+        _onCleanDataClicked = onCleanDataClicked;
+        _onOpenDataClicked = onOpenDataClicked;
         _onQuitClicked = onQuitClicked;
     }
 
@@ -37,6 +41,16 @@ public sealed class TrayController : IDisposable
 
         menu.Items.Add(new Separator());
 
+        var openDataItem = new MenuItem { Header = "Open User Data Folder" };
+        openDataItem.Click += (_, _) => _onOpenDataClicked();
+        menu.Items.Add(openDataItem);
+
+        var cleanItem = new MenuItem { Header = "Clean User Data..." };
+        cleanItem.Click += (_, _) => _onCleanDataClicked();
+        menu.Items.Add(cleanItem);
+
+        menu.Items.Add(new Separator());
+
         var quitItem = new MenuItem { Header = "Quit" };
         quitItem.Click += (_, _) => _onQuitClicked();
         menu.Items.Add(quitItem);
@@ -47,8 +61,8 @@ public sealed class TrayController : IDisposable
             ContextMenu = menu,
         };
 
-        // Use the default application icon from the system
-        using var stream = typeof(TrayController).Assembly.GetManifestResourceStream("MarsinDictation.App.Assets.tray-icon.ico");
+        // Use the application icon from the system
+        using var stream = typeof(TrayController).Assembly.GetManifestResourceStream("MarsinDictation.App.Assets.app-icon.ico");
         if (stream is not null)
         {
             _trayIcon.Icon = new Icon(stream);

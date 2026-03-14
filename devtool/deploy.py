@@ -193,6 +193,41 @@ def kill_process_tree(pid):
         pass
 
 # ── Build pipeline ────────────────────────────────────────────
+
+def ensure_app_icon(dry_run, verbose):
+    """Generate app-icon.ico from icon.png dynamically to ensure crisp 256x256 resolution."""
+    png_path = ROOT / "icon.png"
+    ico_path = WINDOWS_DIR / APP_PROJECT / "Assets" / "app-icon.ico"
+    
+    if not png_path.exists():
+        return
+        
+    # If ICO doesn't exist or PNG is newer, rebuild ICO
+    if ico_path.exists() and png_path.stat().st_mtime <= ico_path.stat().st_mtime:
+        return
+
+    info("Generating multi-res app-icon.ico from icon.png...")
+    if dry_run:
+        results.append(("Generate icon", "skip"))
+        return
+
+    try:
+        ico_path.parent.mkdir(parents=True, exist_ok=True)
+        ps_script = ROOT / "devtool" / "build_icon.ps1"
+        cmd = [
+            "powershell", "-ExecutionPolicy", "Bypass", "-File", str(ps_script),
+            "-InputPath", str(png_path), "-OutputPath", str(ico_path)
+        ]
+        
+        proc = subprocess.run(cmd, check=True, capture_output=not verbose, text=True)
+        ok("Generate icon")
+        results.append(("Generate icon", "ok"))
+    except subprocess.CalledProcessError as e:
+        warn(f"Failed to generate icon. Exit code {e.returncode}")
+        if not verbose and e.stderr:
+            for line in e.stderr.strip().splitlines():
+                warn(line)
+
 TEST_PROJECT = "MarsinDictation.Tests"
 
 def do_restore(verbose, dry_run):
@@ -201,6 +236,7 @@ def do_restore(verbose, dry_run):
 
 def do_build(config, verbose, dry_run):
     """Build all projects individually (avoids solution x86 platform mismatch)."""
+    ensure_app_icon(dry_run, verbose)
     if not do_restore(verbose, dry_run):
         return False
     # Build App (pulls in Core) — output goes to bin/Debug/ matching dotnet run
@@ -439,7 +475,16 @@ def deploy_windows(args):
     kill_existing(dry_run=d)
     run_step("Check .NET SDK", ["dotnet", "--version"], dry_run=d, verbose=v)
 
-    if args.test:
+    if args.install:
+        # --install: publish + copy to Program Files + desktop shortcut
+        if not do_build("Release", v, d):
+            return print_summary(start)
+        code = print_summary(start)
+        if code != 0:
+            return code
+        return do_install(d)
+
+    elif args.test:
         # --test: build + run tests (optionally filtered)
         do_test(config, v, d, filter_expr=args.filter)
         return print_summary(start)
@@ -475,6 +520,119 @@ def deploy_windows(args):
         if code == 0:
             do_run(config, d, hold=args.hold)
         return code
+
+# ── Install ───────────────────────────────────────────────────
+INSTALL_DIR = Path(os.environ.get("PROGRAMFILES", r"C:\Program Files")) / "MarsinDictation"
+EXE_NAME = "MarsinDictation.App.exe"
+
+def do_install(dry_run=False):
+    """Publish self-contained, copy to Program Files (UAC), create desktop shortcut."""
+    header("Installing MarsinDictation")
+
+    # 1. dotnet publish → self-contained single-dir
+    publish_dir = WINDOWS_DIR / APP_PROJECT / "bin" / "publish"
+    publish_cmd = [
+        "dotnet", "publish", APP_PROJECT,
+        "-c", "Release",
+        "-r", "win-x64",
+        "--self-contained", "true",
+        "-p:PublishSingleFile=false",
+        "-p:IncludeNativeLibrariesForSelfExtract=true",
+        "-o", str(publish_dir),
+    ]
+    info("Publishing self-contained app...")
+    if dry_run:
+        dim(f"  [dry-run] {' '.join(publish_cmd)}")
+    else:
+        try:
+            subprocess.run(publish_cmd, cwd=str(WINDOWS_DIR), check=True,
+                         capture_output=True, text=True)
+            ok(f"Published to {publish_dir}")
+        except subprocess.CalledProcessError as e:
+            fail(f"Publish failed — exit code {e.returncode}")
+            if e.stderr:
+                for line in e.stderr.strip().splitlines()[-5:]:
+                    print(f"  {line}")
+            return 1
+
+    # 2. Copy to Program Files (requires admin — UAC prompt)
+    info(f"Installing to {INSTALL_DIR} (requires admin)...")
+    if dry_run:
+        dim(f"  [dry-run] robocopy {publish_dir} {INSTALL_DIR}")
+    else:
+        # Write a temp .ps1 script to avoid nested-quote issues with spaces in paths
+        import tempfile
+        script_path = Path(tempfile.mktemp(suffix=".ps1"))
+        script_path.write_text(
+            f'Start-Process -FilePath "robocopy.exe"'
+            f' -ArgumentList @(\'"{publish_dir}"\', \'"{INSTALL_DIR}"\', "/MIR", "/NJH", "/NJS", "/NDL", "/NC", "/NS")'
+            f' -Verb RunAs -Wait\n',
+            encoding="utf-8"
+        )
+        try:
+            subprocess.run(["powershell", "-ExecutionPolicy", "Bypass", "-File", str(script_path)],
+                          check=False)
+            if INSTALL_DIR.exists() and (INSTALL_DIR / EXE_NAME).exists():
+                ok(f"Installed to {INSTALL_DIR}")
+            else:
+                fail("Installation may have failed — exe not found")
+                return 1
+        except Exception as e:
+            fail(f"Installation failed: {e}")
+            return 1
+        finally:
+            script_path.unlink(missing_ok=True)
+
+    # 3. Create desktop shortcut
+    info("Creating desktop shortcut...")
+    if dry_run:
+        dim("  [dry-run] Create MarsinDictation.lnk on Desktop")
+    else:
+        desktop = Path.home() / "Desktop"
+        shortcut_path = desktop / "MarsinDictation.lnk"
+        target = INSTALL_DIR / EXE_NAME
+
+        ps_shortcut = f'''
+$ws = New-Object -ComObject WScript.Shell
+$sc = $ws.CreateShortcut("{shortcut_path}")
+$sc.TargetPath = "{target}"
+$sc.WorkingDirectory = "{INSTALL_DIR}"
+$sc.Description = "MarsinDictation — AI-powered dictation"
+$sc.IconLocation = "{target},0"
+$sc.Save()
+
+# Force Windows Explorer to refresh its icon cache immediately
+Add-Type -MemberDefinition '[DllImport("shell32.dll")] public static extern void SHChangeNotify(uint wEventId, uint uFlags, IntPtr dwItem1, IntPtr dwItem2);' -Name SHC -Namespace Win32
+[Win32.SHC]::SHChangeNotify(0x08000000, 0x0000, [IntPtr]::Zero, [IntPtr]::Zero)
+'''
+        try:
+            subprocess.run(["powershell", "-Command", ps_shortcut],
+                         check=True, capture_output=True, text=True)
+            ok(f"Desktop shortcut created: {shortcut_path}")
+        except subprocess.CalledProcessError as e:
+            warn(f"Could not create shortcut: {e}")
+
+    # 4. Copy .env to %LOCALAPPDATA%/MarsinDictation/ (so installed app finds API keys)
+    env_src = ROOT / ".env"
+    if env_src.exists():
+        local_app_data = os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData" / "Local"))
+        env_dst = Path(local_app_data) / "MarsinDictation" / ".env"
+        env_dst.parent.mkdir(parents=True, exist_ok=True)
+        if dry_run:
+            dim(f"  [dry-run] Copy .env → {env_dst}")
+        else:
+            import shutil
+            shutil.copy2(str(env_src), str(env_dst))
+            ok(f"Copied .env → {env_dst}")
+    else:
+        warn("No .env file found — installed app will need API keys configured manually")
+
+    print()
+    ok("Installation complete!")
+    print(f"  {C.DIM}Location: {INSTALL_DIR}{C.RESET}")
+    print(f"  {C.DIM}Desktop shortcut: MarsinDictation.lnk{C.RESET}")
+    print(f"  {C.DIM}Launch from Start Menu or desktop icon{C.RESET}")
+    return 0
 
 # ── Kill / Clean ──────────────────────────────────────────────
 def do_kill_cmd(args):
@@ -539,6 +697,8 @@ def main():
     mode.add_argument("--build", action="store_true", help="Build and test only")
     mode.add_argument("--run", action="store_true", help="Run only (auto-rebuilds if dirty)")
     mode.add_argument("--test", action="store_true", help="Build and run all tests")
+    mode.add_argument("--install", action="store_true",
+                       help="Publish and install to Program Files + desktop shortcut")
 
     parser.add_argument("--hold", action="store_true",
                        help="Keep terminal open and tail app logs (tmp/logs/app.log)")

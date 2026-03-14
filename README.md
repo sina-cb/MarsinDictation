@@ -18,14 +18,14 @@ See [`devtool/README.md`](devtool/README.md) for full deploy tool docs.
 
 | Platform | Activation | Status |
 |----------|-----------|--------|
-| **Windows** | `Ctrl+Shift` (hold) / `Ctrl+Alt+Space` (toggle) | 🟡 Phase 0 |
+| **Windows** | `Ctrl+Win` (hold) / `Alt+Shift+Z` (recovery) | 🟢 v0 |
 | **macOS** | `Control+Option+Space` (toggle) | 🔨 Design Complete |
 | **iPhone / iPad** | Custom keyboard with dictation button | 📋 Planned |
 | **Android** | Custom keyboard with dictation button | 📋 Planned |
 
 ## Key Features
 
-- **System-Wide Dictation** — Dictate into any text field in most standard apps. Hold `Ctrl+Shift` to record, release to process — or toggle with `Ctrl+Alt+Space`.
+- **System-Wide Dictation** — Dictate into any text field in most standard apps. Hold `Ctrl+Win` to record, release to transcribe and inject.
 - **AI Auto-Editing** — Filler words ("um", "uh") are stripped, grammar is corrected, and punctuation is applied automatically.
 - **Recovery Hotkey** — If text injection fails, press `Alt+Shift+Z` (Windows) or `Option+Shift+Z` (macOS) to paste your last dictation into any text field.
 - **Dual Transcription Providers** — OpenAI API for best accuracy, or LocalAI for free offline private transcription.

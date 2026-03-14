@@ -1,6 +1,8 @@
 using System.Windows;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
+using System.Runtime.InteropServices;
 
 namespace MarsinDictation.App;
 
@@ -10,6 +12,16 @@ namespace MarsinDictation.App;
 /// </summary>
 public partial class StatusWindow : Window
 {
+    private const int WS_EX_TRANSPARENT = 0x00000020;
+    private const int WS_EX_NOACTIVATE = 0x08000000;
+    private const int GWL_EXSTYLE = -20;
+
+    [DllImport("user32.dll")]
+    private static extern int GetWindowLong(IntPtr hwnd, int index);
+
+    [DllImport("user32.dll")]
+    private static extern int SetWindowLong(IntPtr hwnd, int index, int newStyle);
+
     private readonly DispatcherTimer _hideTimer;
 
     public StatusWindow()
@@ -25,6 +37,14 @@ public partial class StatusWindow : Window
 
         // Position: bottom-center, ~10% up from the bottom of the screen
         Loaded += (_, _) => PositionWindow();
+    }
+
+    protected override void OnSourceInitialized(EventArgs e)
+    {
+        base.OnSourceInitialized(e);
+        var hwnd = new WindowInteropHelper(this).Handle;
+        var extendedStyle = GetWindowLong(hwnd, GWL_EXSTYLE);
+        SetWindowLong(hwnd, GWL_EXSTYLE, extendedStyle | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE);
     }
 
     private void PositionWindow()
