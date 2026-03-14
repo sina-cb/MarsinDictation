@@ -280,23 +280,20 @@ Handled by the same `HotkeyManager` (second registered ID). When pressed:
 
 ## Settings (v0)
 
-| Setting | Default | Type |
-|---------|---------|------|
-| Dictation hotkey (hold) | `Ctrl + Shift` | 2-key, hold-to-record |
-| Recovery hotkey | `Alt + Shift + Z` | Key combo |
-| Transcription provider | `openai` | Enum: `openai` / `localai` |
-| OpenAI API key | *(empty)* | String (secret) |
-| OpenAI model | `gpt-4o-mini-transcribe` | Enum: `whisper-1` / `gpt-4o-mini-transcribe` / `gpt-4o-transcribe` |
-| LocalAI endpoint | `http://localhost:8080` | URL |
-| LocalAI model | `whisper-1` | String |
-| Language | `en` | ISO 639-1 |
-| Auto-punctuation | `on` | Boolean |
-| Strip filler words | `on` | Boolean |
-| Launch at startup | `off` | Boolean |
-| Local history | `on` | Boolean |
-
-> [!IMPORTANT]
-> Secrets entered through the UI, such as the OpenAI API key, must **not** be stored in plain JSON settings files. Use a Windows-protected secret storage mechanism (DPAPI-backed encryption or `ProtectedData` API).
+| Setting | Default | Type | Status |
+|---------|---------|------|--------|
+| Dictation hotkey (hold) | `Ctrl + Shift` | 2-key, hold-to-record | ✅ |
+| Recovery hotkey | `Alt + Shift + Z` | Key combo | ✅ |
+| Transcription provider | `openai` | Enum: `openai` / `localai` | 🚧 `.env` only |
+| OpenAI API key | *(empty)* | String (secret) | 🚧 `.env` only |
+| OpenAI model | `gpt-4o-mini-transcribe` | Enum: `whisper-1` / `gpt-4o-mini-transcribe` / `gpt-4o-transcribe` | ✅ |
+| LocalAI endpoint | `http://localhost:8080` | URL | ❌ |
+| LocalAI model | `whisper-1` | String | ❌ |
+| Language | `en` | ISO 639-1 | ❌ |
+| Auto-punctuation | `on` | Boolean | ❌ |
+| Strip filler words | `on` | Boolean | ❌ |
+| Launch at startup | `off` | Boolean | ❌ |
+| Local history | `on` | Boolean | ✅ Sharded JSONL |
 
 ---
 
