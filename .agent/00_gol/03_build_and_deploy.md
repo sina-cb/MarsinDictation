@@ -8,7 +8,7 @@ This document defines the build and deployment process for all MarsinDictation p
 
 | Platform | Status | Build System | Notes |
 |----------|--------|-------------|-------|
-| **Windows** | 🔴 No code yet | .NET 8+ / `dotnet` CLI | WinUI 3 app — see [Windows v0 Design](../01_designs/01_win_design_v0.md) |
+| **Windows** | 🟡 Phase 0 | .NET 8+ / `dotnet` CLI | WPF tray app — see [Windows v0 Design](../01_designs/01_win_design_v0.md) |
 | **macOS** | 🔴 No code yet | Swift / Xcode / `xcodebuild` | Swift app — see [macOS v0 Design](../01_designs/02_mac_design_v0.md) |
 | **iOS** | 🔴 Not started | Swift / Xcode | Custom keyboard extension — future |
 | **Android** | 🔴 Not started | Kotlin / Gradle | Custom IME — future |
@@ -20,7 +20,7 @@ This document defines the build and deployment process for all MarsinDictation p
 All platforms share a single deployment entry point:
 
 ```
-deploy/deploy.py
+devtool/deploy.py
 ```
 
 This script handles the full lifecycle for any platform:
@@ -31,7 +31,7 @@ This script handles the full lifecycle for any platform:
 ### CLI Design
 
 ```
-python deploy/deploy.py <platform> [options]
+python devtool/deploy.py <platform> [options]
 
 Platforms:
   windows     Build and install the Windows tray app
@@ -46,6 +46,9 @@ Options:
   --release           Build in Release configuration (default: Debug)
   --verbose           Show full build output
   --dry-run           Show what would be done without executing
+  --hold              Keep terminal open and tail app logs in real-time
+  --test              Build and run tests with evidence output
+  --filter EXPR       Filter which tests to run (used with --test)
 ```
 
 ### Design Principles
@@ -65,7 +68,7 @@ Inspired by the MarsinLED `deploy.py` pattern:
 #### Windows
 
 ```
-python deploy/deploy.py windows
+python devtool/deploy.py windows
 ```
 
 Steps:
@@ -80,7 +83,7 @@ Build output: `windows/MarsinDictation.App/bin/`
 #### macOS
 
 ```
-python deploy/deploy.py mac
+python devtool/deploy.py mac
 ```
 
 Steps:
@@ -93,7 +96,7 @@ Build output: `mac/build/`
 #### iOS
 
 ```
-python deploy/deploy.py ios
+python devtool/deploy.py ios
 ```
 
 Steps:
@@ -106,7 +109,7 @@ Build output: `ios/build/`
 #### Android
 
 ```
-python deploy/deploy.py android
+python devtool/deploy.py android
 ```
 
 Steps:
@@ -134,5 +137,5 @@ All build artifacts must be gitignored. Platform-specific output locations:
 
 ## Placeholder Note
 
-> [!IMPORTANT]
-> The `deploy/deploy.py` script does **not exist yet**. This document defines its intended design. Implementation will begin when the first platform (Windows) has buildable code. The script should follow the patterns established in the MarsinLED `deploy.py` (argparse-based CLI, phased execution, colored output, tee logging, result summary).
+> [!NOTE]
+> The `devtool/deploy.py` script is implemented with Windows support. macOS, iOS, and Android handlers are placeholder stubs. The script follows the patterns established in the MarsinLED `deploy.py` (argparse-based CLI, phased execution, colored output, result summary).

@@ -1,3 +1,5 @@
+This is our Game of Life...
+
 # Codex Rules - MarsinDictation
 
 ## Purpose
@@ -55,6 +57,7 @@ Prefer implementations that help the agent prove behavior with tests, focused ch
 - Avoid hidden side effects.
 - Prefer code that is easy to test, debug, and review.
 - When choosing between reasonable designs, prefer the one that reduces human verification work.
+- **Do not run `git add` or `git commit` unless the Human User explicitly asks.** The human controls when to commit.
 
 ---
 
@@ -89,7 +92,10 @@ Read the relevant documents before making changes:
 - `00_gol/01_privacy.md` for privacy and security rules
 - `00_gol/02_git.md` for git workflow and versioning rules
 - `00_gol/03_build_and_deploy.md` for build and deploy workflow
+- `00_gol/04_agent_driven_test.md` for the evidence-based testing framework
+- `00_gol/05_temp_files.md` for temporary file rules (`tmp/` directory)
 - `01_designs/` for intended architecture and platform behavior
+- `01_designs/03_utils.md` for `util/` directory conventions and utility docs
 - `02_projects/` for current project scope and task tracking
 
 ---

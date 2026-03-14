@@ -78,18 +78,28 @@ dotnet run --project MarsinDictation.App
 
 ## UX
 
-### Default Hotkey
+### Primary Hotkey — Hold-to-Record
 
-**`Ctrl + Alt + Space`** — toggle dictation on/off
+**`Ctrl + Shift`** (hold) — record while held, stop when released
+
+> [!IMPORTANT]
+> **Hard requirement: 2-key combo only.** The primary dictation hotkey must be exactly two physical keys for speed and ergonomics.
 
 > [!NOTE]
-> Windows-logo key combinations are reserved by the OS, so we avoid `Ctrl + Win`. Toggle-mode avoids needing a low-level keyboard hook just to detect key-up. Less sorcery, fewer edge cases.
+> Uses a `WH_KEYBOARD_LL` low-level keyboard hook to track modifier state. Recording starts when both keys are held and stops when either is released. If any non-modifier key is pressed while both are held (e.g., Ctrl+Shift+C), the recording is cancelled — this preserves all standard Ctrl+Shift+X shortcuts.
+
+### ~~Toggle Hotkey~~ (skipped)
+
+~~`Ctrl + Shift + Space` — toggle recording on/off~~
+
+> [!NOTE]
+> Skipped for v0. The hold-to-record via Ctrl+Shift is sufficient. Toggle mode added complexity (debounce conflicts, RegisterHotKey unreliability) without enough benefit for the initial version.
 
 ### Recovery Hotkey
 
 **`Alt + Shift + Z`** — paste the last transcription
 
-If text injection fails (elevated app, locked text field, no focused cursor), the transcript is **not lost**. The user can switch to any text field and press `Alt + Shift + Z` to inject the most recent result. This also provides a general "paste last dictation" shortcut for workflows where the user dictates first and decides where to put it afterward.
+If text injection fails (elevated app, locked text field, no focused cursor), the transcript is **not lost**. The user can switch to any text field and press `Alt + Shift + Z` to inject the most recent result.
 
 ### UI Elements
 
@@ -157,7 +167,7 @@ windows/
 ┌──────────────────────────────────────────────────────────┐
 │  1. Check foreground process against exclusion list      │
 │     → If excluded: no-op with subtle notification        │
-│  2. User presses Ctrl + Alt + Space                      │
+│  2. User presses Ctrl + Shift (both held, then released) │
 │  3. HotkeyManager receives WM_HOTKEY                     │
 │  4. DictationService.StartCapture()                      │
 │  5. AudioCapture begins WASAPI recording                 │
@@ -165,7 +175,7 @@ windows/
 │  7. AudioGuard monitors estimated WAV size               │
 │     → Auto-stops if approaching 25 MB                    │
 │  8. User speaks...                                       │
-│  9. User presses Ctrl + Alt + Space again                 │
+│  9. User presses Ctrl + Shift again                      │
 │     (or AudioGuard auto-stops at limit)                   │
 │ 10. DictationService.StopCapture()                       │
 │ 11. WavEncoder produces WAV buffer                       │
@@ -178,11 +188,10 @@ windows/
 │     └─ Return cleaned text                               │
 │ 14. Injection targets the CURRENTLY FOCUSED field        │
 │     (not the field focused when recording started)       │
-│ 15. Injection ladder (with clipboard preservation):      │
-│     ├─ Backup user's clipboard contents                  │
-│     ├─ Try: ClipboardInjector (Ctrl+V)                   │
-│     ├─ Restore previous clipboard (best-effort)          │
-│     └─ Fallback: SendInputInjector (Unicode keystrokes)  │
+│ 15. Injection (internal buffer — never touches clipboard):│
+│     ├─ Text stored in internal TranscriptStore buffer    │
+│     ├─ Try: SendInputInjector (Unicode keystrokes)       │
+│     └─ If UIPI blocks: store as "pending" for recovery   │
 │ 16. If ALL injection fails:                              │
 │     ├─ Store in TranscriptStore as "pending"             │
 │     └─ Toast: "Text saved. Press Alt+Shift+Z to paste."  │
@@ -196,21 +205,17 @@ windows/
 
 ### Hotkey — Single `HotkeyManager` with `RegisterHotKey`
 
-Use `RegisterHotKey` for v0. It is the simplest native path for a system-wide hotkey that lands in your message loop as `WM_HOTKEY`. No DLL injection, no low-level hooks, no complexity.
+Use a hybrid approach for v0. The dictation hotkey (Ctrl+Shift) uses a `WH_KEYBOARD_LL` low-level keyboard hook since `RegisterHotKey` cannot cleanly handle modifier-only combos. The recovery hotkey (Alt+Shift+Z) uses standard `RegisterHotKey`.
 
-A single `HotkeyManager` registers **both** hotkey IDs and routes by action:
+A single `HotkeyManager` manages both mechanisms:
 
 ```csharp
-// Single manager, two registrations
-RegisterHotKey(hwnd, DICTATION_HOTKEY_ID, MOD_CONTROL | MOD_ALT, VK_SPACE);
-RegisterHotKey(hwnd, RECOVERY_HOTKEY_ID, MOD_ALT | MOD_SHIFT, 0x5A /* Z */);
+// Dictation: WH_KEYBOARD_LL hook (2-key modifier-only combo)
+// Tracks Ctrl+Shift state, fires on release without intervening keys
+SetWindowsHookEx(WH_KEYBOARD_LL, LowLevelKeyboardCallback, ...);
 
-// In WM_HOTKEY handler:
-switch (hotkeyId)
-{
-    case DICTATION_HOTKEY_ID: ToggleDictation(); break;
-    case RECOVERY_HOTKEY_ID:  InjectPendingTranscript(); break;
-}
+// Recovery: standard RegisterHotKey
+RegisterHotKey(hwnd, RECOVERY_HOTKEY_ID, MOD_ALT | MOD_SHIFT, 0x5A /* Z */);
 ```
 
 > [!IMPORTANT]
@@ -242,23 +247,22 @@ OpenAI's speech-to-text API currently limits uploaded audio files to **25 MB**. 
 
 This same guard is applied to both providers for consistent UX.
 
-### Injection — Ladder Strategy
+### Injection — Internal Buffer + SendInput
 
-Design for fallback from day one:
+**The app never touches the system clipboard.** All transcribed text is held in an internal `TranscriptStore` buffer. Injection uses `SendInput` with Unicode keystrokes to type the text directly into the focused field.
 
 | Priority | Method | Mechanism | Why it might fail |
 |----------|--------|-----------|-------------------|
-| 1 | **Clipboard paste** | `Clipboard.SetText()` + `SendInput(Ctrl+V)` | Clipboard locked by another app |
-| 2 | **SendInput** | Unicode-aware simulated keystrokes | UIPI blocks injection to elevated apps |
+| 1 | **SendInput** | Unicode-aware simulated keystrokes (`KEYEVENTF_UNICODE`) | UIPI blocks injection to elevated apps |
+
+> [!IMPORTANT]
+> **No clipboard involvement.** The user's clipboard is never read, written, or modified by the dictation app. The transcript lives in the internal `TranscriptStore` buffer. This eliminates clipboard conflicts, race conditions with other apps, and the need for clipboard backup/restore logic.
 
 > [!WARNING]
-> We do **not** use `UIAutomation.ValuePattern.SetValue()` for v0. It **overwrites the entire text field** rather than inserting at the cursor position. If used in Word or a long email, it would delete the user's entire document and replace it with their dictated sentence. Clipboard paste is universally supported, respects cursor position, and is fast.
+> We do **not** use `UIAutomation.ValuePattern.SetValue()` for v0. It **overwrites the entire text field** rather than inserting at the cursor position.
 
 > [!IMPORTANT]
-> **Clipboard preservation:** Clipboard-based injection must preserve and restore the user's previous clipboard contents on a best-effort basis. If the clipboard is locked or restoration fails, injection should still proceed and the app should not crash.
-
-> [!IMPORTANT]
-> If both methods fail, the transcript is **not lost**. It is saved to `TranscriptStore` as "pending" and the user is notified via toast. They can press **`Alt + Shift + Z`** at any time to re-attempt injection into the currently focused field.
+> If injection fails (e.g., UIPI blocks input to an elevated app), the transcript is **not lost**. It is saved to `TranscriptStore` as "pending" and the user is notified. They can press **`Alt + Shift + Z`** at any time to re-attempt injection into the currently focused field.
 
 ### Recovery — `Alt + Shift + Z`
 
@@ -278,7 +282,7 @@ Handled by the same `HotkeyManager` (second registered ID). When pressed:
 
 | Setting | Default | Type |
 |---------|---------|------|
-| Dictation hotkey | `Ctrl + Alt + Space` | Key combo |
+| Dictation hotkey (hold) | `Ctrl + Shift` | 2-key, hold-to-record |
 | Recovery hotkey | `Alt + Shift + Z` | Key combo |
 | Transcription provider | `openai` | Enum: `openai` / `localai` |
 | OpenAI API key | *(empty)* | String (secret) |
@@ -327,7 +331,7 @@ Handled by the same `HotkeyManager` (second registered ID). When pressed:
 - [ ] History panel shows recent transcripts with copy/re-inject
 - [ ] Tray icon and overlay are non-intrusive
 - [ ] Settings persist across app restarts
-- [ ] Clipboard contents are preserved/restored after injection
+- [ ] System clipboard is never modified by the app
 - [ ] Excluded apps are skipped with subtle notification
 - [ ] OpenAI API key stored via DPAPI, not plain JSON
 
@@ -366,16 +370,16 @@ These are not blocking changes but rules the implementation must follow:
 - **Core must not know** anything about tray APIs
 - Overlay and tray state should **subscribe to service state**, not drive it
 
-### Clipboard Preservation
+### Internal Transcript Buffer
 
+Transcribed text is held in the `TranscriptStore` internal buffer, never in the system clipboard:
 ```
-1. Read current clipboard → save to temp variable
-2. Set clipboard to transcribed text
-3. SendInput(Ctrl+V)
-4. Brief best-effort delay after paste dispatch before restoring
-5. Restore saved clipboard contents
-6. If restoration fails: log warning, do not crash
+1. Transcription completes → text stored in TranscriptStore
+2. SendInput types text directly via KEYEVENTF_UNICODE keystrokes
+3. If injection fails → mark as "pending" in TranscriptStore
+4. Recovery hotkey re-attempts SendInput from internal buffer
 ```
+The user's clipboard is never read, written, or modified.
 
 ### SendInput Unicode Mode
 

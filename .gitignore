@@ -35,8 +35,8 @@ Desktop.ini
 ehthumbs.db
 
 # ── Secrets & Local Config ───────────────────────────────────
-*.env
-.env.*
+.env
+!.env.example
 secrets/
 
 # ── Package Managers ─────────────────────────────────────────
@@ -51,3 +51,6 @@ deploy/__pycache__/
 
 # ── Agent Workspace ──────────────────────────────────────────
 .gemini/
+
+# ── Metrics Ledger ───────────────────────────────────────────
+.metrics/

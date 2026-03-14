@@ -1,0 +1,584 @@
+#!/usr/bin/env python3
+"""
+MarsinDictation — Unified dev tool.
+
+Usage:
+    python devtool/deploy.py [command] [options]
+
+Commands:
+    windows     Build and run the Windows app (auto-detected on Windows)
+    mac         Build and run the macOS app (auto-detected on macOS)
+    iphone      Build the iOS keyboard extension (future)
+    android     Build the Android IME (future)
+    kill        Kill any running MarsinDictation processes
+    clean       Clean all build artifacts
+
+Modes:
+    --build         Build and test only — don't run
+    --run           Run only — auto-rebuilds if source is dirty
+    --test          Build and run tests only
+    (default)       Build, test, and run
+
+Options:
+    --release       Build in Release configuration (default: Debug)
+    --verbose       Show full build output
+    --dry-run       Show what would be done without executing
+"""
+
+import argparse
+import os
+import platform
+import signal
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+# ── Colors ────────────────────────────────────────────────────
+class C:
+    GREEN  = "\033[92m"
+    RED    = "\033[91m"
+    YELLOW = "\033[93m"
+    CYAN   = "\033[96m"
+    DIM    = "\033[2m"
+    BOLD   = "\033[1m"
+    RESET  = "\033[0m"
+
+ROOT = Path(__file__).resolve().parent.parent
+WINDOWS_DIR = ROOT / "windows"
+APP_PROJECT = "MarsinDictation.App"
+SOURCE_EXTENSIONS = {".cs", ".xaml", ".csproj", ".sln", ".json", ".resx"}
+
+# ── Logging ───────────────────────────────────────────────────
+import logging
+
+_log_dir = ROOT / "tmp" / "logs"
+_log_dir.mkdir(parents=True, exist_ok=True)
+
+logger = logging.getLogger("deploy")
+logger.setLevel(logging.DEBUG)
+
+# File handler — plain text, timestamped
+_fh = logging.FileHandler(_log_dir / "deploy.log", mode="w", encoding="utf-8")
+_fh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", datefmt="%H:%M:%S"))
+_fh.setLevel(logging.DEBUG)
+logger.addHandler(_fh)
+
+def info(msg):
+    print(f"{C.CYAN}▸{C.RESET} {msg}")
+    logger.info(msg)
+def ok(msg):
+    print(f"{C.GREEN}✔{C.RESET} {msg}")
+    logger.info(msg)
+def warn(msg):
+    print(f"{C.YELLOW}⚠{C.RESET} {msg}")
+    logger.warning(msg)
+def fail(msg):
+    print(f"{C.RED}✗{C.RESET} {msg}")
+    logger.error(msg)
+def header(msg):
+    print(f"\n{C.BOLD}{C.CYAN}{'─'*56}\n  {msg}\n{'─'*56}{C.RESET}")
+    logger.info(f"══ {msg} ══")
+def dim(msg):
+    print(f"{C.DIM}{msg}{C.RESET}")
+    logger.debug(msg)
+
+# ── Step tracker ──────────────────────────────────────────────
+results = []
+
+def run_step(name, cmd, cwd=None, dry_run=False, verbose=False):
+    """Run a command, track result, return success bool."""
+    info(f"{name}...")
+    if dry_run:
+        dim(f"  [dry-run] {' '.join(str(c) for c in cmd)}")
+        results.append((name, "skip"))
+        return True
+
+    try:
+        kwargs = dict(cwd=str(cwd) if cwd else None, check=True)
+        if not verbose:
+            kwargs["capture_output"] = True
+            kwargs["text"] = True
+
+        subprocess.run(cmd, **kwargs)
+        ok(name)
+        results.append((name, "ok"))
+        return True
+    except subprocess.CalledProcessError as e:
+        fail(f"{name} — exit code {e.returncode}")
+        if not verbose and e.stdout:
+            for line in e.stdout.strip().splitlines()[-8:]:
+                print(f"  {line}")
+        if not verbose and e.stderr:
+            for line in e.stderr.strip().splitlines()[-8:]:
+                print(f"  {line}")
+        results.append((name, "FAIL"))
+        return False
+
+def print_summary(start_time):
+    elapsed = time.time() - start_time
+    print()
+    failed = sum(1 for _, s in results if s == "FAIL")
+    for name, status in results:
+        icon = {"ok": f"{C.GREEN}✔", "skip": f"{C.DIM}~", "FAIL": f"{C.RED}✗"}.get(status, "?")
+        print(f"  {icon}{C.RESET} {name}")
+    print()
+    if failed:
+        fail(f"{failed} step(s) failed")
+    else:
+        ok("All steps completed")
+    dim(f"Elapsed: {elapsed:.1f}s")
+    return 1 if failed else 0
+
+# ── Dirty detection ───────────────────────────────────────────
+def get_output_dll(config="Debug"):
+    return WINDOWS_DIR / APP_PROJECT / "bin" / config / "net8.0-windows" / f"{APP_PROJECT}.dll"
+
+def newest_source_mtime(directory):
+    newest = 0.0
+    for root, _, files in os.walk(directory):
+        if "\\bin\\" in root or "/bin/" in root or "\\obj\\" in root or "/obj/" in root:
+            continue
+        for f in files:
+            if Path(f).suffix in SOURCE_EXTENSIONS:
+                mtime = os.path.getmtime(os.path.join(root, f))
+                if mtime > newest:
+                    newest = mtime
+    return newest
+
+def is_binary_dirty(config="Debug"):
+    dll = get_output_dll(config)
+    if not dll.exists():
+        info("No existing build found — build required")
+        return True
+
+    dll_mtime = dll.stat().st_mtime
+    src_mtime = newest_source_mtime(WINDOWS_DIR)
+
+    if src_mtime > dll_mtime:
+        delta = src_mtime - dll_mtime
+        info(f"Source is {delta:.0f}s newer than binary — rebuild required")
+        return True
+    else:
+        ok("Binary is up-to-date")
+        return False
+
+# ── Process management ────────────────────────────────────────
+def kill_existing(dry_run=False):
+    """Kill any running MarsinDictation processes."""
+    info("Checking for existing processes...")
+    try:
+        result = subprocess.run(
+            ["tasklist", "/FI", f"IMAGENAME eq {APP_PROJECT}.exe", "/FO", "CSV", "/NH"],
+            capture_output=True, text=True
+        )
+        if APP_PROJECT in result.stdout:
+            if dry_run:
+                dim(f"  [dry-run] Would kill {APP_PROJECT}.exe")
+                return
+            subprocess.run(["taskkill", "/F", "/IM", f"{APP_PROJECT}.exe"], capture_output=True)
+            ok(f"Killed existing {APP_PROJECT}")
+            time.sleep(0.5)
+        else:
+            dim("  No existing processes found")
+    except Exception as e:
+        warn(f"Could not check/kill processes: {e}")
+
+def kill_process_tree(pid):
+    """Kill a process and all its children using taskkill /T."""
+    try:
+        subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)],
+                       capture_output=True, timeout=5)
+    except Exception:
+        pass
+
+# ── Build pipeline ────────────────────────────────────────────
+TEST_PROJECT = "MarsinDictation.Tests"
+
+def do_restore(verbose, dry_run):
+    return run_step("Restore packages", ["dotnet", "restore"],
+                    cwd=WINDOWS_DIR, dry_run=dry_run, verbose=verbose)
+
+def do_build(config, verbose, dry_run):
+    """Build all projects individually (avoids solution x86 platform mismatch)."""
+    if not do_restore(verbose, dry_run):
+        return False
+    # Build App (pulls in Core) — output goes to bin/Debug/ matching dotnet run
+    if not run_step(f"Build ({config})",
+                    ["dotnet", "build", APP_PROJECT, "-c", config, "--no-restore"],
+                    cwd=WINDOWS_DIR, dry_run=dry_run, verbose=verbose):
+        return False
+    # Build Tests (pulls in Core)
+    return run_step(f"Build Tests",
+                    ["dotnet", "build", TEST_PROJECT, "-c", config, "--no-restore"],
+                    cwd=WINDOWS_DIR, dry_run=dry_run, verbose=verbose)
+
+def do_test(config, verbose, dry_run, filter_expr=None):
+    """Build and run tests, showing self-documented evidence."""
+    if not do_build(config, verbose, dry_run):
+        return False
+
+    info("Run tests...")
+    if dry_run:
+        dim("  [dry-run] dotnet test --no-build")
+        results.append(("Run tests", "skip"))
+        return True
+
+    import xml.etree.ElementTree as ET
+    import tempfile
+
+    trx_dir = tempfile.mkdtemp(prefix="marsin_test_")
+    test_cmd = [
+        "dotnet", "test", "--no-build", "-c", config,
+        "--logger", f"trx;LogFileName=results.trx",
+        "--results-directory", trx_dir,
+        "--verbosity", "quiet"
+    ]
+    if filter_expr:
+        test_cmd.extend(["--filter", filter_expr])
+
+    try:
+        proc = subprocess.run(test_cmd, cwd=str(WINDOWS_DIR),
+                             capture_output=True, text=True)
+
+        # Find TRX file
+        trx_file = None
+        for root_dir, _, files in os.walk(trx_dir):
+            for f in files:
+                if f.endswith(".trx"):
+                    trx_file = os.path.join(root_dir, f)
+                    break
+
+        if trx_file and os.path.exists(trx_file):
+            tree = ET.parse(trx_file)
+            ns = {"t": "http://microsoft.com/schemas/VisualStudio/TeamTest/2010"}
+            root = tree.getroot()
+
+            test_results = root.findall(".//t:UnitTestResult", ns)
+            suites = {}
+            total_passed = 0
+            total_failed = 0
+
+            for tr in test_results:
+                name = tr.get("testName", "?")
+                outcome = tr.get("outcome", "?")
+
+                # Extract test output (evidence from ITestOutputHelper)
+                output_el = tr.find(".//t:Output/t:StdOut", ns)
+                evidence = output_el.text.strip() if output_el is not None and output_el.text else ""
+
+                # Group by test class
+                parts = name.rsplit(".", 1)
+                suite = parts[0] if len(parts) > 1 else "Unknown"
+                test_name = parts[1] if len(parts) > 1 else name
+
+                if suite not in suites:
+                    suites[suite] = []
+                suites[suite].append((test_name, outcome, evidence))
+
+                if outcome == "Passed":
+                    total_passed += 1
+                else:
+                    total_failed += 1
+
+            # Display evidence-based results
+            print()
+            for suite, tests in sorted(suites.items()):
+                short_suite = suite.split(".")[-1]
+                passed = sum(1 for _, o, _ in tests if o == "Passed")
+                print(f"  {C.BOLD}{short_suite}{C.RESET} ({passed}/{len(tests)})")
+
+                for test_name, outcome, evidence in tests:
+                    icon = f"{C.GREEN}✔" if outcome == "Passed" else f"{C.RED}✗"
+                    print(f"    {icon}{C.RESET} {test_name}")
+
+                    if evidence and verbose:
+                        for line in evidence.splitlines():
+                            print(f"      {C.DIM}{line}{C.RESET}")
+                    elif evidence:
+                        # Show SETUP, INTENT and PASS/FAIL lines for compact view
+                        for line in evidence.splitlines():
+                            stripped = line.strip()
+                            if "SETUP:" in stripped or "INTENT:" in stripped or "PASS:" in stripped or "FAIL:" in stripped:
+                                print(f"      {C.DIM}{stripped}{C.RESET}")
+                print()
+
+            total = total_passed + total_failed
+            if total_failed == 0:
+                ok(f"All {total} tests passed")
+                results.append(("Run tests", "ok"))
+            else:
+                fail(f"{total_failed}/{total} tests failed")
+                results.append(("Run tests", "FAIL"))
+                return False
+        else:
+            if proc.returncode == 0:
+                ok("Run tests")
+                results.append(("Run tests", "ok"))
+            else:
+                fail("Run tests")
+                if proc.stdout:
+                    for line in proc.stdout.strip().splitlines()[-8:]:
+                        print(f"  {line}")
+                results.append(("Run tests", "FAIL"))
+                return False
+
+        import shutil
+        shutil.rmtree(trx_dir, ignore_errors=True)
+
+    except Exception as e:
+        fail(f"Run tests — {e}")
+        results.append(("Run tests", "FAIL"))
+        return False
+
+    return True
+
+def do_run(config, dry_run, hold=False):
+    """Run the app, handling Ctrl+C by killing the process tree."""
+    print()
+    header("Running MarsinDictation")
+    print(f"  {C.DIM}Stop via: tray icon \u2192 Quit, or Ctrl+C{C.RESET}")
+    print(f"  {C.DIM}Hotkeys: Ctrl+Win (hold to record), Alt+Shift+Z (recovery){C.RESET}")
+    if hold:
+        print(f"  {C.DIM}Logs: %LOCALAPPDATA%/MarsinDictation/logs/app.log{C.RESET}")
+    print()
+
+    if dry_run:
+        dim(f"  [dry-run] dotnet run --project {APP_PROJECT}")
+        return
+
+    # Log file: %LOCALAPPDATA%/MarsinDictation/logs/app.log (matches C# FileLoggerProvider)
+    local_app_data = os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData" / "Local"))
+    log_file = Path(local_app_data) / "MarsinDictation" / "logs" / "app.log"
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+    log_file.write_text("", encoding="utf-8")  # Truncate old log
+
+    run_cmd = ["dotnet", "run", "--project", APP_PROJECT, "-c", config, "--no-build"]
+    proc = subprocess.Popen(run_cmd, cwd=str(WINDOWS_DIR),
+                           creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
+
+    if hold:
+        # Tail the log file until process exits or Ctrl+C
+        _tail_log(proc, log_file)
+    else:
+        try:
+            proc.wait()
+        except KeyboardInterrupt:
+            print()
+            info("Ctrl+C — stopping app...")
+            kill_process_tree(proc.pid)
+            ok("App stopped")
+
+def _print_log_line(line):
+    """Print a single log line with color coding."""
+    if not line:
+        return
+    # Colorize by level
+    if "[ERR]" in line or "[CRT]" in line:
+        print(f"  {C.RED}{line}{C.RESET}")
+    elif "[WRN]" in line:
+        print(f"  {C.YELLOW}{line}{C.RESET}")
+    elif "[DBG]" in line:
+        print(f"  {C.DIM}{line}{C.RESET}")
+    else:
+        print(f"  {line}")
+
+def _tail_log(proc, log_file):
+    """Tail a log file while process is alive. Ctrl+C kills both."""
+    # Mirror app logs to repo tmp/logs/app.log
+    mirror_file = ROOT / "tmp" / "logs" / "app.log"
+    mirror_file.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        # Wait for the log file to appear
+        for _ in range(20):
+            if log_file.exists() and log_file.stat().st_size > 0:
+                break
+            time.sleep(0.25)
+
+        if not log_file.exists():
+            warn("Log file not created — app may not be writing logs")
+            proc.wait()
+            return
+
+        with open(log_file, "r", encoding="utf-8", errors="replace") as f, \
+             open(mirror_file, "w", encoding="utf-8") as mirror:
+            while proc.poll() is None:
+                line = f.readline()
+                if line:
+                    stripped = line.rstrip()
+                    _print_log_line(stripped)
+                    mirror.write(line)
+                    mirror.flush()
+                else:
+                    time.sleep(0.1)
+
+            # Drain remaining lines
+            for line in f:
+                stripped = line.rstrip()
+                _print_log_line(stripped)
+                mirror.write(line)
+
+        print()
+        info("App exited")
+    except KeyboardInterrupt:
+        print()
+        info("Ctrl+C — stopping app...")
+        kill_process_tree(proc.pid)
+        ok("App stopped")
+
+# ── Windows ───────────────────────────────────────────────────
+def deploy_windows(args):
+    header("MarsinDictation — Windows")
+    start = time.time()
+
+    config = "Release" if args.release else "Debug"
+    v = args.verbose
+    d = args.dry_run
+
+    kill_existing(dry_run=d)
+    run_step("Check .NET SDK", ["dotnet", "--version"], dry_run=d, verbose=v)
+
+    if args.test:
+        # --test: build + run tests (optionally filtered)
+        do_test(config, v, d, filter_expr=args.filter)
+        return print_summary(start)
+
+    elif args.run:
+        # --run: only build if dirty, then run
+        dirty = is_binary_dirty(config)
+        if dirty:
+            info("Auto-rebuilding dirty binary...")
+            if not do_build(config, v, d):
+                return print_summary(start)
+            run_step("Run tests", ["dotnet", "test", "--no-build", "-c", config, "--verbosity", "quiet"],
+                     cwd=WINDOWS_DIR, dry_run=d, verbose=v)
+        code = print_summary(start)
+        if code == 0:
+            do_run(config, d, hold=args.hold)
+        return code
+
+    elif args.build:
+        # --build: build + test, don't run
+        do_build(config, v, d)
+        run_step("Run tests", ["dotnet", "test", "--no-build", "-c", config, "--verbosity", "quiet"],
+                 cwd=WINDOWS_DIR, dry_run=d, verbose=v)
+        return print_summary(start)
+
+    else:
+        # Default: build + test + run
+        if not do_build(config, v, d):
+            return print_summary(start)
+        run_step("Run tests", ["dotnet", "test", "--no-build", "-c", config, "--verbosity", "quiet"],
+                 cwd=WINDOWS_DIR, dry_run=d, verbose=v)
+        code = print_summary(start)
+        if code == 0:
+            do_run(config, d, hold=args.hold)
+        return code
+
+# ── Kill / Clean ──────────────────────────────────────────────
+def do_kill_cmd(args):
+    header("Kill MarsinDictation Processes")
+    kill_existing(dry_run=args.dry_run)
+
+def do_clean(args):
+    header("Clean Build Artifacts")
+    start = time.time()
+    run_step("Clean Windows", ["dotnet", "clean"], cwd=WINDOWS_DIR, dry_run=args.dry_run, verbose=args.verbose)
+    return print_summary(start)
+
+# ── Stubs ─────────────────────────────────────────────────────
+def deploy_mac(args):
+    header("MarsinDictation — macOS")
+    warn("macOS deployment not yet implemented")
+
+def deploy_iphone(args):
+    header("MarsinDictation — iPhone/iPad")
+    warn("iOS deployment not yet implemented")
+    dim("  Will use: Xcode + xcodebuild archive")
+
+def deploy_android(args):
+    header("MarsinDictation — Android")
+    warn("Android deployment not yet implemented")
+    dim("  Will use: Gradle + adb install")
+
+# ── OS detection ──────────────────────────────────────────────
+def detect_platform():
+    s = platform.system()
+    if s == "Windows":
+        return "windows"
+    elif s == "Darwin":
+        return "mac"
+    else:
+        return s.lower()
+
+
+# ── Main ──────────────────────────────────────────────────────
+PLATFORMS = ["windows", "mac", "iphone", "android"]
+COMMANDS = PLATFORMS + ["kill", "clean"]
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="MarsinDictation dev tool",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=f"""{C.DIM}Examples:
+  python devtool/deploy.py                      Auto-detect OS, build + run
+  python devtool/deploy.py --build              Build + test only
+  python devtool/deploy.py --run                Run (auto-rebuild if dirty)
+  python devtool/deploy.py --test               Build + run all tests
+  python devtool/deploy.py --test --filter UserVoice  Run specific test(s)
+  python devtool/deploy.py --test --verbose     Show full evidence output
+  python devtool/deploy.py windows              Explicit platform
+  python devtool/deploy.py kill                 Kill running instances
+  python devtool/deploy.py clean                Clean build artifacts{C.RESET}"""
+    )
+    parser.add_argument("command", nargs="?", default=None, choices=COMMANDS,
+                       help="Platform or command (auto-detected if omitted)")
+
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--build", action="store_true", help="Build and test only")
+    mode.add_argument("--run", action="store_true", help="Run only (auto-rebuilds if dirty)")
+    mode.add_argument("--test", action="store_true", help="Build and run all tests")
+
+    parser.add_argument("--hold", action="store_true",
+                       help="Keep terminal open and tail app logs (tmp/logs/app.log)")
+
+    parser.add_argument("--filter", type=str, default=None,
+                       help="Filter tests by name (dotnet test --filter expression)")
+    parser.add_argument("--release", action="store_true", help="Release build (default: Debug)")
+    parser.add_argument("--verbose", action="store_true", help="Show full build output")
+    parser.add_argument("--dry-run", action="store_true", help="Show steps without executing")
+
+    args = parser.parse_args()
+
+
+    if args.command is None:
+        detected = detect_platform()
+        info(f"Auto-detected platform: {C.BOLD}{detected}{C.RESET}")
+        args.command = detected
+
+    dispatchers = {
+        "windows": deploy_windows,
+        "mac": deploy_mac,
+        "iphone": deploy_iphone,
+        "android": deploy_android,
+        "kill": do_kill_cmd,
+        "clean": do_clean,
+    }
+
+    handler = dispatchers.get(args.command)
+    if handler is None:
+        fail(f"Platform '{args.command}' is not supported.")
+        dim(f"  Detected OS: {platform.system()} ({platform.platform()})")
+        dim(f"  Supported: {', '.join(PLATFORMS)}")
+        sys.exit(1)
+
+    try:
+        code = handler(args) or 0
+        sys.exit(code)
+    except KeyboardInterrupt:
+        print(f"\n{C.YELLOW}Interrupted{C.RESET}")
+        sys.exit(130)
+
+if __name__ == "__main__":
+    main()
