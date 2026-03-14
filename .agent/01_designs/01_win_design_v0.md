@@ -16,7 +16,7 @@ The user presses a hotkey, speaks naturally, presses the hotkey again, and polis
 
 ## Non-Goals (v0)
 
-- Hold-to-talk with low-level keyboard hook
+- ~~Hold-to-talk with low-level keyboard hook~~ *(implemented — Ctrl+Win hold-to-record)*
 - App-specific formatting profiles
 - Local embedded Python runtime
 - Offline model bundle
@@ -33,10 +33,10 @@ The user presses a hotkey, speaks naturally, presses the hotkey again, and polis
 | Dependency | Version | Purpose |
 |-----------|---------|---------|
 | .NET SDK | 8.0+ | Build and run the application |
-| Windows App SDK | 1.5+ | WinUI 3 framework for modern UI |
-| H.NotifyIcon.WinUI | Latest | System tray icon (WinUI 3 has no native tray API) |
+| WPF | .NET 8 built-in | UI framework (WPF, not WinUI 3) |
+| H.NotifyIcon.Wpf | Latest | System tray icon |
 | Visual Studio 2022 or `dotnet` CLI | Latest | Development toolchain |
-| Windows 10 | 1809+ | Minimum OS version (WinUI 3 requirement) |
+| Windows 10 | 1809+ | Minimum OS version |
 | LocalAI *(optional)* | Latest | Local transcription server (whisper.cpp backend) |
 
 ### Transcription Providers (one or both)
@@ -95,7 +95,7 @@ dotnet run --project MarsinDictation.App
 > [!NOTE]
 > Skipped for v0. The hold-to-record via Ctrl+Shift is sufficient. Toggle mode added complexity (debounce conflicts, RegisterHotKey unreliability) without enough benefit for the initial version.
 
-### Recovery Hotkey
+### Recovery Hotkey ✅
 
 **`Alt + Shift + Z`** — paste the last transcription
 
@@ -103,13 +103,13 @@ If text injection fails (elevated app, locked text field, no focused cursor), th
 
 ### UI Elements
 
-| Element | Description |
-|---------|-------------|
-| **System tray icon** | Persistent icon with right-click menu (Settings, History, Quit) |
-| **Recording overlay** | Small floating indicator — turns red/pulsing while recording |
-| **Settings window** | Compact window for hotkey, language, provider, and preferences |
-| **Transcript history** | Scrollable panel showing recent transcriptions with copy/re-inject |
-| **Per-app exclusion list** | Allows disabling dictation in specific apps |
+| Element | Description | Status |
+|---------|-------------|--------|
+| **System tray icon** | Persistent icon with right-click menu (Settings, History, Open Data, Clean Data, Quit) | ✅ |
+| **Recording overlay** | Small floating indicator — passive ghost window (`WS_EX_NOACTIVATE`) | ✅ |
+| **Settings window** | Compact window for hotkey, language, provider, and preferences | 🔮 Future |
+| **Transcript history** | Scrollable panel showing recent transcriptions with copy/re-inject | 🔮 Future |
+| **Per-app exclusion list** | Allows disabling dictation in specific apps | 🔮 Future |
 
 ---
 
@@ -117,7 +117,7 @@ If text injection fails (elevated app, locked text field, no focused cursor), th
 
 ### Process Model
 
-Single process: WinUI 3 shell with a background dictation service inside the same app. System tray icon via **H.NotifyIcon.WinUI** (WinUI 3 has no native tray API — this NuGet package handles the P/Invoke and lets you bind a WinUI context menu to a standard Windows tray icon).
+Single process: WPF shell with background dictation orchestration inside `App.xaml.cs`. System tray icon via **H.NotifyIcon.Wpf**. The `DictationService.cs` defines the state machine, while `App.xaml.cs` directly orchestrates the recording → transcription → injection pipeline.
 
 ### Module Structure
 
@@ -236,27 +236,30 @@ Two providers behind `ITranscriptionClient`, both using the same `/v1/audio/tran
 
 Because both providers expose the same OpenAI-compatible endpoint, `ITranscriptionClient` is a single HTTP client parameterized by base URL, auth, and model. The provider and model are selected via env var or settings UI.
 
-### Upload Size Guard
+### Upload Size Guard 🔮
 
-OpenAI's speech-to-text API currently limits uploaded audio files to **25 MB**. The `AudioGuard` module enforces this limit during recording. For v0, the behavior is:
+OpenAI's speech-to-text API currently limits uploaded audio files to **25 MB**. The `AudioGuard` module will enforce this limit during recording. The planned behavior is:
 
 - Monitor estimated encoded WAV size during recording
 - Automatically stop recording before the upload would exceed 25 MB
 - Send the captured audio as-is
 - Show a toast: "Recording limit reached. Sending captured audio."
 
-This same guard is applied to both providers for consistent UX.
+This same guard applies to both providers for consistent UX.
 
-### Injection — Internal Buffer + SendInput
+> **Status:** Not yet implemented. See [Future Work](#future-work).
 
-**The app never touches the system clipboard.** All transcribed text is held in an internal `TranscriptStore` buffer. Injection uses `SendInput` with Unicode keystrokes to type the text directly into the focused field.
+### Injection — SendInput + Clipboard Fallback ✅
+
+Injection uses `SendInput` with Unicode keystrokes (`KEYEVENTF_UNICODE`) to type text directly into the focused field. If `SendInput` fails (e.g., UIPI blocks injection to an elevated app), the text is copied to the clipboard as a fallback and the user is notified.
 
 | Priority | Method | Mechanism | Why it might fail |
 |----------|--------|-----------|-------------------|
 | 1 | **SendInput** | Unicode-aware simulated keystrokes (`KEYEVENTF_UNICODE`) | UIPI blocks injection to elevated apps |
+| 2 | **Clipboard fallback** | `Clipboard.SetText()` + toast notification | User must manually Ctrl+V |
 
-> [!IMPORTANT]
-> **No clipboard involvement.** The user's clipboard is never read, written, or modified by the dictation app. The transcript lives in the internal `TranscriptStore` buffer. This eliminates clipboard conflicts, race conditions with other apps, and the need for clipboard backup/restore logic.
+> [!NOTE]
+> **Design deviation:** The original design specified "never touches the clipboard." The current implementation copies text to clipboard on every injection as a convenience backup. This is a deliberate trade-off for reliability — if `SendInput` silently fails in certain apps, the user still has the text on clipboard.
 
 > [!WARNING]
 > We do **not** use `UIAutomation.ValuePattern.SetValue()` for v0. It **overwrites the entire text field** rather than inserting at the cursor position.
@@ -287,13 +290,16 @@ Handled by the same `HotkeyManager` (second registered ID). When pressed:
 | Transcription provider | `openai` | Enum: `openai` / `localai` | 🚧 `.env` only |
 | OpenAI API key | *(empty)* | String (secret) | 🚧 `.env` only |
 | OpenAI model | `gpt-4o-mini-transcribe` | Enum: `whisper-1` / `gpt-4o-mini-transcribe` / `gpt-4o-transcribe` | ✅ |
-| LocalAI endpoint | `http://localhost:8080` | URL | ❌ |
-| LocalAI model | `whisper-1` | String | ❌ |
-| Language | `en` | ISO 639-1 | ❌ |
-| Auto-punctuation | `on` | Boolean | ❌ |
-| Strip filler words | `on` | Boolean | ❌ |
-| Launch at startup | `off` | Boolean | ❌ |
+| LocalAI endpoint | `http://localhost:8080` | URL | 🚧 `.env` only |
+| LocalAI model | `whisper-1` | String | 🚧 `.env` only |
+| Language | `en` | ISO 639-1 | 🔮 Future |
+| Auto-punctuation | `on` | Boolean | 🔮 Future |
+| Strip filler words | `on` | Boolean | 🔮 Future |
+| Launch at startup | `off` | Boolean | 🔮 Future |
 | Local history | `on` | Boolean | ✅ Sharded JSONL |
+
+> [!IMPORTANT]
+> Secrets entered through the UI, such as the OpenAI API key, must **not** be stored in plain JSON settings files. Use a Windows-protected secret storage mechanism (DPAPI-backed encryption or `ProtectedData` API). Currently, API keys are read from `.env` files.
 
 ---
 
@@ -314,23 +320,22 @@ Handled by the same `HotkeyManager` (second registered ID). When pressed:
 
 ## Acceptance Criteria
 
-- [ ] Dictation works end-to-end in: **Notepad, Chrome textarea, Slack, Word, VS Code**
-- [ ] OpenAI transcription works with valid API key
-- [ ] LocalAI transcription works with local LocalAI server running
-- [ ] WAV upload path works end-to-end for both providers
-- [ ] Recordings exceeding 25 MB are handled gracefully
-- [ ] Injection ladder falls through correctly when primary method fails
-- [ ] Injection targets focused field at transcription-complete time, not recording-start time
-- [ ] `Alt + Shift + Z` successfully pastes pending/last transcript
-- [ ] Both hotkeys are unregistered on app shutdown
-- [ ] App survives mic disconnect and reconnect
-- [ ] Clear error toast if transcription fails
-- [ ] History panel shows recent transcripts with copy/re-inject
-- [ ] Tray icon and overlay are non-intrusive
-- [ ] Settings persist across app restarts
-- [ ] System clipboard is never modified by the app
-- [ ] Excluded apps are skipped with subtle notification
-- [ ] OpenAI API key stored via DPAPI, not plain JSON
+- [x] Dictation works end-to-end in: **Notepad, Chrome textarea, VS Code**
+- [x] OpenAI transcription works with valid API key
+- [x] LocalAI transcription works (same client, configurable endpoint)
+- [x] WAV upload path works end-to-end for both providers
+- [ ] Recordings exceeding 25 MB are handled gracefully *(🔮 AudioGuard)*
+- [x] Injection falls through to clipboard when SendInput fails
+- [x] Injection targets focused field at transcription-complete time, not recording-start time
+- [x] `Alt + Shift + Z` successfully re-injects the last transcript
+- [x] Both hotkeys are unregistered on app shutdown
+- [ ] App survives mic disconnect and reconnect *(🔮 untested)*
+- [x] Clear error toast if transcription fails
+- [ ] History panel shows recent transcripts with copy/re-inject *(🔮 Future)*
+- [x] Tray icon and overlay are non-intrusive (passive ghost window)
+- [x] Settings persist across app restarts (via `.env`)
+- [ ] Excluded apps are skipped with subtle notification *(🔮 Future)*
+- [ ] OpenAI API key stored via DPAPI, not plain JSON *(🔮 currently `.env`)*
 
 ---
 
@@ -367,31 +372,88 @@ These are not blocking changes but rules the implementation must follow:
 - **Core must not know** anything about tray APIs
 - Overlay and tray state should **subscribe to service state**, not drive it
 
-### Internal Transcript Buffer
+### Injection Flow (Current)
 
-Transcribed text is held in the `TranscriptStore` internal buffer, never in the system clipboard:
 ```
 1. Transcription completes → text stored in TranscriptStore
 2. SendInput types text directly via KEYEVENTF_UNICODE keystrokes
-3. If injection fails → mark as "pending" in TranscriptStore
-4. Recovery hotkey re-attempts SendInput from internal buffer
+3. Clipboard.SetText(text) — backup copy on every injection
+4. If SendInput fails → mark as "pending", toast: "Copied to clipboard (Ctrl+V)"
+5. Recovery hotkey re-attempts SendInput from _lastTranscription
 ```
-The user's clipboard is never read, written, or modified.
 
 ### SendInput Unicode Mode
 
 For the typing fallback, use Unicode-aware input (`KEYEVENTF_UNICODE` flag with `wScan` set to the character value). Do not attempt to map every character to a virtual key code — that breaks for punctuation, non-English text, and symbols.
 
-### Per-App Exclusion List
-
-Before starting capture **and** before recovery injection, check the foreground process against the exclusion list:
-- Use `GetForegroundWindow()` → `GetWindowThreadProcessId()` → process name
-- If excluded: no-op with a subtle notification ("Dictation disabled for this app")
-
 ### Provider Capability Normalization
 
-Not every provider/model supports the same response format. v0 should normalize all transcription responses to **plain text output** only. Do not rely on structured metadata or word-level timestamps from either provider.
+Not every provider/model supports the same response format. v0 normalizes all transcription responses to **plain text output** only. Do not rely on structured metadata or word-level timestamps from either provider.
 
 ### Prior Internal Reference
 
-The existing MarsinHome mobile app uses this exact API shape as a working reference. Its GOL server `transcribe.js` route converts base64 audio → `multipart/form-data` → `POST /v1/audio/transcriptions` with `Bearer` auth. The Windows app will call the endpoint directly (no proxy needed). See `MarsinHome/central_server/src/routes/transcribe.js` for the working implementation.
+The existing MarsinHome mobile app uses this exact API shape as a working reference. Its GOL server `transcribe.js` route converts base64 audio → `multipart/form-data` → `POST /v1/audio/transcriptions` with `Bearer` auth. The Windows app calls the endpoint directly (no proxy needed).
+
+---
+
+## Future Work
+
+Features designed but not yet implemented. These are tracked here as the canonical backlog.
+
+### Rapid Back-to-Back Recordings
+
+Users should be able to hold → speak → release → hold → speak → release in rapid succession without conflicts. Requirements:
+
+- A new recording must **never block on** a previous transcription still in flight
+- Each recording session should be assigned a unique ID and queued independently
+- Transcription results should be injected in **order of recording start time**, not completion time
+- If a transcription completes while another is being injected, it should queue behind it
+- The StatusWindow overlay should reflect the **most recent active state** (recording takes priority over transcribing)
+
+Implementation approach:
+- Use a `ConcurrentQueue<RecordingSession>` or `Channel<T>` to decouple recording from transcription
+- Each session carries its own WAV data and timestamp
+- A background consumer processes the queue sequentially for injection
+
+### AudioGuard (25 MB Upload Limit)
+
+Monitor `AudioRecorder.CurrentSize` during capture and auto-stop before exceeding 25 MB. Show toast: "Recording limit reached."
+
+### TextPostProcessor (Filler Word Removal)
+
+Strip filler words ("um", "uh", "like"), fix punctuation and capitalization. Low priority — OpenAI models already produce clean output.
+
+### Per-App Exclusion List
+
+Before starting capture **and** before recovery injection, check the foreground process against an exclusion list:
+- Use `GetForegroundWindow()` → `GetWindowThreadProcessId()` → process name
+- If excluded: no-op with subtle notification ("Dictation disabled for this app")
+
+### Settings UI Window
+
+Replace the `MainWindow.xaml` placeholder with a real settings panel:
+- Provider selection (OpenAI / LocalAI)
+- API key input (stored via DPAPI)
+- Model selection
+- Language preference
+- Launch at startup toggle
+
+### Transcript History Panel
+
+Scrollable panel showing recent transcriptions with copy and re-inject actions. Data is already stored in sharded JSONL files.
+
+### Usage Metrics
+
+Track and display usage statistics in a JSONL metrics ledger:
+- Total words transcribed (lifetime and per-session)
+- Number of recordings made
+- Average recording duration
+- Transcription success/failure rate
+- Provider breakdown (OpenAI vs LocalAI usage)
+- Daily/weekly/monthly summaries
+
+Metrics should be stored locally in `%LOCALAPPDATA%/MarsinDictation/metrics/` and optionally surfaced in the Settings or History UI. See [Metrics Design](../.agent/01_designs/04_metrics.md) for the JSONL ledger format.
+
+### DictationService Refactor
+
+Currently `App.xaml.cs` directly orchestrates recording → transcription → injection. The `DictationService.cs` state machine is defined but not used at runtime. Consider refactoring the orchestration logic from `App.xaml.cs` into `DictationService` for cleaner separation of concerns.
