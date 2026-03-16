@@ -649,6 +649,7 @@ def do_clean(args):
 def deploy_mac(args):
     header("MarsinDictation — macOS")
     warn("macOS deployment not yet implemented")
+    dim("  Note: Open mac/MarsinDictation.xcodeproj in Xcode directly to run the Mac app.")
 
 def deploy_iphone(args):
     header("MarsinDictation — iPhone/iPad")

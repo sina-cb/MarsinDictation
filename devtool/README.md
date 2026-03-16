@@ -18,7 +18,7 @@ python devtool/deploy.py --test --filter UserVoice --verbose  # Run one test wit
 | Command | Description |
 |---------|-------------|
 | `windows` | Build and run the Windows app (auto-detected on Windows) |
-| `mac` | Build and run the macOS app (auto-detected on macOS, stub) |
+| `mac` | Build and run the macOS app (stub — macOS is currently only built via Xcode IDE directly) |
 | `iphone` | Build the iOS keyboard extension (stub) |
 | `android` | Build the Android IME (stub) |
 | `kill` | Kill any running MarsinDictation processes |

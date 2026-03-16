@@ -1,0 +1,396 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		154AD5DBB9CE5BDFE4EF0A4C /* GenericTranscriptionClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90FBF888BC9ED7A6C51A903D /* GenericTranscriptionClient.swift */; };
+		1F6F21B0D83B44F390BF20F7 /* MarsinDictationApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D28D8C15AA1F2163469A231 /* MarsinDictationApp.swift */; };
+		221054A94F0AF04603A76683 /* TextPostProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73770CDD2F090CBE306D8E29 /* TextPostProcessor.swift */; };
+		2D4E8D0958236D5217A3A760 /* PasteboardInjector.swift in Sources */ = {isa = PBXBuildFile; fileRef = D653DE0731E6D43A64CC38B6 /* PasteboardInjector.swift */; };
+		30FECD1030C23630273D053E /* ITranscriptionClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0991FCAA3A93163E324A3726 /* ITranscriptionClient.swift */; };
+		33913F0AE32CE071E7903A9D /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 941848A26794FC552F5DBD81 /* AppDelegate.swift */; };
+		5AF801FEC81075355B0CAB0A /* HotkeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69D61E04972D0773EB2AB3FD /* HotkeyManager.swift */; };
+		5DE8204F34A6595E5D2B891F /* TranscriptStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E9366F374D9A345998E779C /* TranscriptStore.swift */; };
+		5FC2C9A232534C129DB17B76 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48195944C4770DB8EE541432 /* SettingsView.swift */; };
+		60BFF038163B00D2F4BC85DD /* ITextInjector.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD8BF698D7B25F6565E0AB64 /* ITextInjector.swift */; };
+		6704289CF11AC11817862620 /* AudioCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD9A78F784A3C45A73A7F859 /* AudioCapture.swift */; };
+		7DEB5297EAA58C89C45AB663 /* KeystrokeInjector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55914DD57E21951167217CC5 /* KeystrokeInjector.swift */; };
+		916BBC508B55F5524F6A47A2 /* DictationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC2A4D8A7CE02AF6947419B3 /* DictationService.swift */; };
+		998FB1FA85B229FF088D432C /* StatusBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A33139A0686F31C83196F356 /* StatusBarController.swift */; };
+		A2F19D83FE3D77AF5F8E6221 /* AudioGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12EF2DF8047D875DFB7F02C /* AudioGuard.swift */; };
+		B46BFB5DDF17FA15333EB3D7 /* RecordingHUD.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6DF2E212DCF2D8CF6F60452 /* RecordingHUD.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		04A698145D805F399B4E844A /* MarsinDictation.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MarsinDictation.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		0991FCAA3A93163E324A3726 /* ITranscriptionClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ITranscriptionClient.swift; sourceTree = "<group>"; };
+		3E9366F374D9A345998E779C /* TranscriptStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptStore.swift; sourceTree = "<group>"; };
+		48195944C4770DB8EE541432 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		55914DD57E21951167217CC5 /* KeystrokeInjector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeystrokeInjector.swift; sourceTree = "<group>"; };
+		69D61E04972D0773EB2AB3FD /* HotkeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyManager.swift; sourceTree = "<group>"; };
+		6D28D8C15AA1F2163469A231 /* MarsinDictationApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarsinDictationApp.swift; sourceTree = "<group>"; };
+		73770CDD2F090CBE306D8E29 /* TextPostProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextPostProcessor.swift; sourceTree = "<group>"; };
+		90FBF888BC9ED7A6C51A903D /* GenericTranscriptionClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenericTranscriptionClient.swift; sourceTree = "<group>"; };
+		941848A26794FC552F5DBD81 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		A33139A0686F31C83196F356 /* StatusBarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusBarController.swift; sourceTree = "<group>"; };
+		AD9A78F784A3C45A73A7F859 /* AudioCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioCapture.swift; sourceTree = "<group>"; };
+		C12EF2DF8047D875DFB7F02C /* AudioGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioGuard.swift; sourceTree = "<group>"; };
+		CC2A4D8A7CE02AF6947419B3 /* DictationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictationService.swift; sourceTree = "<group>"; };
+		D653DE0731E6D43A64CC38B6 /* PasteboardInjector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasteboardInjector.swift; sourceTree = "<group>"; };
+		D6DF2E212DCF2D8CF6F60452 /* RecordingHUD.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingHUD.swift; sourceTree = "<group>"; };
+		DD8BF698D7B25F6565E0AB64 /* ITextInjector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ITextInjector.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		0A475BCC16B96F6AC68B8A71 /* Hotkey */ = {
+			isa = PBXGroup;
+			children = (
+				69D61E04972D0773EB2AB3FD /* HotkeyManager.swift */,
+			);
+			path = Hotkey;
+			sourceTree = "<group>";
+		};
+		106DB653827A3FAB84D26771 = {
+			isa = PBXGroup;
+			children = (
+				3E8BDD04F79CEB30AE66BC48 /* Core */,
+				A8B679F081A764EB07B767B3 /* MarsinDictationApp */,
+				67AD838C79739DAE9F1C205D /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		1E72C0A36F960F5EF7B437DC /* Injection */ = {
+			isa = PBXGroup;
+			children = (
+				DD8BF698D7B25F6565E0AB64 /* ITextInjector.swift */,
+				55914DD57E21951167217CC5 /* KeystrokeInjector.swift */,
+				D653DE0731E6D43A64CC38B6 /* PasteboardInjector.swift */,
+			);
+			path = Injection;
+			sourceTree = "<group>";
+		};
+		3E8BDD04F79CEB30AE66BC48 /* Core */ = {
+			isa = PBXGroup;
+			children = (
+				CC2A4D8A7CE02AF6947419B3 /* DictationService.swift */,
+				5D58C3731C94020F2B10F19F /* Audio */,
+				ECE56B361A02D07101F6A32B /* History */,
+				0A475BCC16B96F6AC68B8A71 /* Hotkey */,
+				1E72C0A36F960F5EF7B437DC /* Injection */,
+				AB0D68DB0BD13BEC348A808A /* Processing */,
+				C326B8122F475B6A35A6309C /* Transcription */,
+			);
+			path = Core;
+			sourceTree = "<group>";
+		};
+		5D58C3731C94020F2B10F19F /* Audio */ = {
+			isa = PBXGroup;
+			children = (
+				AD9A78F784A3C45A73A7F859 /* AudioCapture.swift */,
+				C12EF2DF8047D875DFB7F02C /* AudioGuard.swift */,
+			);
+			path = Audio;
+			sourceTree = "<group>";
+		};
+		67AD838C79739DAE9F1C205D /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				04A698145D805F399B4E844A /* MarsinDictation.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		A8B679F081A764EB07B767B3 /* MarsinDictationApp */ = {
+			isa = PBXGroup;
+			children = (
+				941848A26794FC552F5DBD81 /* AppDelegate.swift */,
+				6D28D8C15AA1F2163469A231 /* MarsinDictationApp.swift */,
+				D6DF2E212DCF2D8CF6F60452 /* RecordingHUD.swift */,
+				48195944C4770DB8EE541432 /* SettingsView.swift */,
+				A33139A0686F31C83196F356 /* StatusBarController.swift */,
+			);
+			path = MarsinDictationApp;
+			sourceTree = "<group>";
+		};
+		AB0D68DB0BD13BEC348A808A /* Processing */ = {
+			isa = PBXGroup;
+			children = (
+				73770CDD2F090CBE306D8E29 /* TextPostProcessor.swift */,
+			);
+			path = Processing;
+			sourceTree = "<group>";
+		};
+		C326B8122F475B6A35A6309C /* Transcription */ = {
+			isa = PBXGroup;
+			children = (
+				90FBF888BC9ED7A6C51A903D /* GenericTranscriptionClient.swift */,
+				0991FCAA3A93163E324A3726 /* ITranscriptionClient.swift */,
+			);
+			path = Transcription;
+			sourceTree = "<group>";
+		};
+		ECE56B361A02D07101F6A32B /* History */ = {
+			isa = PBXGroup;
+			children = (
+				3E9366F374D9A345998E779C /* TranscriptStore.swift */,
+			);
+			path = History;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		215D5D1C37D6AC4AE229CC5F /* MarsinDictation */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 8B58E3940659A3ABF8A27FC9 /* Build configuration list for PBXNativeTarget "MarsinDictation" */;
+			buildPhases = (
+				152371B5101B36DF50AA9496 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = MarsinDictation;
+			packageProductDependencies = (
+			);
+			productName = MarsinDictation;
+			productReference = 04A698145D805F399B4E844A /* MarsinDictation.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		FDBD8CCAE2D7F7ECABA1E667 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+				};
+			};
+			buildConfigurationList = 308AACA04E44F9D752E1EAF2 /* Build configuration list for PBXProject "MarsinDictation" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 106DB653827A3FAB84D26771;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 67AD838C79739DAE9F1C205D /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				215D5D1C37D6AC4AE229CC5F /* MarsinDictation */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		152371B5101B36DF50AA9496 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				33913F0AE32CE071E7903A9D /* AppDelegate.swift in Sources */,
+				6704289CF11AC11817862620 /* AudioCapture.swift in Sources */,
+				A2F19D83FE3D77AF5F8E6221 /* AudioGuard.swift in Sources */,
+				916BBC508B55F5524F6A47A2 /* DictationService.swift in Sources */,
+				154AD5DBB9CE5BDFE4EF0A4C /* GenericTranscriptionClient.swift in Sources */,
+				5AF801FEC81075355B0CAB0A /* HotkeyManager.swift in Sources */,
+				60BFF038163B00D2F4BC85DD /* ITextInjector.swift in Sources */,
+				30FECD1030C23630273D053E /* ITranscriptionClient.swift in Sources */,
+				7DEB5297EAA58C89C45AB663 /* KeystrokeInjector.swift in Sources */,
+				1F6F21B0D83B44F390BF20F7 /* MarsinDictationApp.swift in Sources */,
+				2D4E8D0958236D5217A3A760 /* PasteboardInjector.swift in Sources */,
+				B46BFB5DDF17FA15333EB3D7 /* RecordingHUD.swift in Sources */,
+				5FC2C9A232534C129DB17B76 /* SettingsView.swift in Sources */,
+				998FB1FA85B229FF088D432C /* StatusBarController.swift in Sources */,
+				221054A94F0AF04603A76683 /* TextPostProcessor.swift in Sources */,
+				5DE8204F34A6595E5D2B891F /* TranscriptStore.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		14DE797A18D825AA94832DD7 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		465349DE14F2FE3FB5F7C297 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		62E45519F59FEC7A13B2A668 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = MarsinDictation.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				INFOPLIST_FILE = Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.marsinhq.MarsinDictation;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		EDB7D66DED84D33CECD5BA1F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = MarsinDictation.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				INFOPLIST_FILE = Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.marsinhq.MarsinDictation;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		308AACA04E44F9D752E1EAF2 /* Build configuration list for PBXProject "MarsinDictation" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				14DE797A18D825AA94832DD7 /* Debug */,
+				465349DE14F2FE3FB5F7C297 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		8B58E3940659A3ABF8A27FC9 /* Build configuration list for PBXNativeTarget "MarsinDictation" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				EDB7D66DED84D33CECD5BA1F /* Debug */,
+				62E45519F59FEC7A13B2A668 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = FDBD8CCAE2D7F7ECABA1E667 /* Project object */;
+}
