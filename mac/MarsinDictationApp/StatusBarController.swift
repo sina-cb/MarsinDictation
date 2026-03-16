@@ -1,11 +1,12 @@
 import AppKit
+import SwiftUI
 
 class StatusBarController {
     private var statusItem: NSStatusItem
     private let menu = NSMenu()
+    private var settingsWindow: NSWindow?
     
     init() {
-        // Create the status item
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         
         if let button = statusItem.button {
@@ -13,26 +14,62 @@ class StatusBarController {
         }
         
         setupMenu()
+        
+        // Listen for recording state changes to update the icon
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(recordStateChanged(_:)),
+            name: NSNotification.Name("RecordStateChanged"),
+            object: nil
+        )
     }
     
     private func setupMenu() {
         let settingsItem = NSMenuItem(title: "Settings...", action: #selector(openSettings), keyEquivalent: ",")
         settingsItem.target = self
+        menu.addItem(settingsItem)
+        
+        menu.addItem(NSMenuItem.separator())
         
         let quitItem = NSMenuItem(title: "Quit Marsin Dictation", action: #selector(quit), keyEquivalent: "q")
         quitItem.target = self
-        
-        menu.addItem(settingsItem)
-        menu.addItem(NSMenuItem.separator())
         menu.addItem(quitItem)
         
         statusItem.menu = menu
     }
     
+    @objc private func recordStateChanged(_ notification: Notification) {
+        let isRecording = notification.object as? Bool ?? false
+        DispatchQueue.main.async { [weak self] in
+            if let button = self?.statusItem.button {
+                let symbolName = isRecording ? "mic.circle.fill" : "mic.fill"
+                button.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: "Marsin Dictation")
+            }
+        }
+    }
+    
     @objc private func openSettings() {
-        // App settings window is managed by SwiftUI Scene
+        if let window = settingsWindow {
+            // Reuse existing window
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+        
+        // Create a new settings window hosting the SwiftUI SettingsView
+        let settingsView = SettingsView()
+        let hostingController = NSHostingController(rootView: settingsView)
+        
+        let window = NSWindow(contentViewController: hostingController)
+        window.title = "MarsinDictation Settings"
+        window.styleMask = [.titled, .closable]
+        window.setContentSize(NSSize(width: 420, height: 520))
+        window.center()
+        window.isReleasedWhenClosed = false
+        
+        self.settingsWindow = window
+        window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
-        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
     }
     
     @objc private func quit() {

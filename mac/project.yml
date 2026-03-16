@@ -6,13 +6,27 @@ targets:
     type: application
     platform: macOS
     deploymentTarget: "13.0"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.marsinhq.MarsinDictation
+      configs:
+        Debug:
+          CODE_SIGN_STYLE: Automatic
+        Release:
+          CODE_SIGN_STYLE: Automatic
+    configFiles:
+      Debug: Local.xcconfig
+      Release: Local.xcconfig
     sources: 
       - path: MarsinDictationApp
       - path: Core
+      - path: MarsinDictationApp/AppIcon.icns
+        buildPhase: resources
     info:
       path: Info.plist
       properties:
         LSUIElement: true
+        CFBundleIconFile: AppIcon
         NSMicrophoneUsageDescription: "Marsin Dictation needs microphone access to transcribe your speech."
         NSAppleEventsUsageDescription: "Marsin Dictation needs to send keystrokes to target applications."
         CFBundleShortVersionString: "1.0"
@@ -22,3 +36,11 @@ targets:
       properties:
         com.apple.security.sandbox: false
         com.apple.security.automation.apple-events: true
+schemes:
+  MarsinDictation:
+    build:
+      targets:
+        MarsinDictation: all
+    run:
+      commandLineArguments:
+        "-debug-playback": false

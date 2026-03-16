@@ -648,8 +648,182 @@ def do_clean(args):
 # ── Stubs ─────────────────────────────────────────────────────
 def deploy_mac(args):
     header("MarsinDictation — macOS")
-    warn("macOS deployment not yet implemented")
-    dim("  Note: Open mac/MarsinDictation.xcodeproj in Xcode directly to run the Mac app.")
+    start = time.time()
+    MAC_DIR = ROOT / "mac"
+
+    v = args.verbose
+    d = args.dry_run
+    config = "Release"  # Always use Release for macOS (avoids duplicate Spotlight entries)
+
+    # Step 1: Check prerequisites
+    run_step("Check Xcode CLI tools", ["xcodebuild", "-version"], dry_run=d, verbose=v)
+
+    # Check for xcodegen
+    xcodegen_check = subprocess.run(["which", "xcodegen"], capture_output=True)
+    if xcodegen_check.returncode != 0:
+        warn("XcodeGen not found — installing via Homebrew...")
+        run_step("Install XcodeGen", ["brew", "install", "xcodegen"], dry_run=d, verbose=v)
+
+    # Step 2: Regenerate Xcode project from project.yml
+    project_yml = MAC_DIR / "project.yml"
+    if project_yml.exists():
+        run_step("Regenerate Xcode project",
+                 ["xcodegen", "generate", "--spec", str(project_yml), "--project", str(MAC_DIR)],
+                 cwd=MAC_DIR, dry_run=d, verbose=v)
+    else:
+        fail("project.yml not found — cannot regenerate Xcode project")
+        return print_summary(start)
+
+    xcodeproj = MAC_DIR / "MarsinDictation.xcodeproj"
+
+    if args.install:
+        # --install: build Release + create DMG installer
+        config = "Release"
+        build_cmd = [
+            "xcodebuild",
+            "-project", str(xcodeproj),
+            "-scheme", "MarsinDictation",
+            "-configuration", config,
+            "CODE_SIGN_IDENTITY=-",
+            "CODE_SIGNING_ALLOWED=YES",
+            "build"
+        ]
+        build_ok = run_step(f"Build ({config})", build_cmd, cwd=MAC_DIR, dry_run=d, verbose=v)
+        if not build_ok:
+            return print_summary(start)
+
+        # Find the built .app
+        derived_data = Path.home() / "Library" / "Developer" / "Xcode" / "DerivedData"
+        app_dir = None
+        for p in derived_data.iterdir():
+            if p.name.startswith("MarsinDictation-"):
+                candidate = p / "Build" / "Products" / config / "MarsinDictation.app"
+                if candidate.exists():
+                    app_dir = candidate
+                    break
+
+        if not app_dir:
+            fail("Could not find built MarsinDictation.app in DerivedData")
+            return print_summary(start)
+
+        # Create staging directory for DMG contents
+        import shutil
+        import tempfile
+
+        dmg_output = ROOT / "tmp" / "MarsinDictation.dmg"
+        dmg_output.parent.mkdir(parents=True, exist_ok=True)
+
+        with tempfile.TemporaryDirectory() as staging_dir:
+            staging = Path(staging_dir)
+
+            # Copy .app bundle
+            dst_app = staging / "MarsinDictation.app"
+            if d:
+                dim(f"  [dry-run] Copy {app_dir} → {dst_app}")
+            else:
+                info("Copying app bundle to staging...")
+                shutil.copytree(str(app_dir), str(dst_app))
+                ok(f"App bundle staged")
+
+            # Bundle .env into app Resources (so installed app finds API keys)
+            env_src = ROOT / ".env"
+            if env_src.exists() and not d:
+                env_dst = dst_app / "Contents" / "Resources" / ".env"
+                shutil.copy2(str(env_src), str(env_dst))
+                ok("Bundled .env into app Resources")
+            elif not env_src.exists():
+                warn("No .env file found — installed app will need configuration")
+
+            # Create /Applications symlink
+            if not d:
+                os.symlink("/Applications", str(staging / "Applications"))
+                ok("Created Applications symlink")
+            else:
+                dim("  [dry-run] Create Applications symlink")
+
+            # Remove old DMG if it exists
+            if dmg_output.exists() and not d:
+                dmg_output.unlink()
+
+            # Create DMG
+            dmg_cmd = [
+                "hdiutil", "create",
+                str(dmg_output),
+                "-volname", "MarsinDictation",
+                "-srcfolder", str(staging),
+                "-ov",
+                "-format", "UDZO"  # compressed DMG
+            ]
+            run_step("Create DMG", dmg_cmd, dry_run=d, verbose=v)
+
+            # Also install directly to /Applications
+            if not d:
+                import shutil as sh2
+                apps_dest = Path("/Applications/MarsinDictation.app")
+                if apps_dest.exists():
+                    sh2.rmtree(str(apps_dest))
+                sh2.copytree(str(dst_app), str(apps_dest))
+                ok("Installed to /Applications/MarsinDictation.app")
+
+                # Reset Accessibility so it re-prompts on first launch
+                subprocess.run(
+                    ["tccutil", "reset", "Accessibility", "com.marsinhq.MarsinDictation"],
+                    capture_output=True
+                )
+                ok("Reset Accessibility — app will prompt on first launch")
+
+        code = print_summary(start)
+        if code == 0 and not d:
+            print()
+            ok("DMG installer created!")
+            print(f"  {C.DIM}Location: {dmg_output}{C.RESET}")
+            print(f"  {C.DIM}Open it and drag MarsinDictation to Applications{C.RESET}")
+            info("Opening DMG...")
+            subprocess.Popen(["open", str(dmg_output)])
+        return code
+
+    elif args.build or args.test:
+        # Build via xcodebuild
+        build_cmd = [
+            "xcodebuild",
+            "-project", str(xcodeproj),
+            "-scheme", "MarsinDictation",
+            "-configuration", config,
+            "CODE_SIGN_IDENTITY=-",
+            "CODE_SIGNING_ALLOWED=YES",
+            "build"
+        ]
+        run_step(f"Build ({config})", build_cmd, cwd=MAC_DIR, dry_run=d, verbose=v)
+        return print_summary(start)
+
+    elif args.run:
+        # Open in Xcode and let the user run from there
+        if not d:
+            info("Opening project in Xcode...")
+            subprocess.Popen(["open", str(xcodeproj)])
+            ok("Opened MarsinDictation.xcodeproj in Xcode — press ⌘R to run")
+        else:
+            dim(f"  [dry-run] open {xcodeproj}")
+        return print_summary(start)
+
+    else:
+        # Default: regenerate + build + open
+        build_cmd = [
+            "xcodebuild",
+            "-project", str(xcodeproj),
+            "-scheme", "MarsinDictation",
+            "-configuration", config,
+            "CODE_SIGN_IDENTITY=-",
+            "CODE_SIGNING_ALLOWED=YES",
+            "build"
+        ]
+        run_step(f"Build ({config})", build_cmd, cwd=MAC_DIR, dry_run=d, verbose=v)
+        code = print_summary(start)
+        if code == 0 and not d:
+            info("Opening project in Xcode...")
+            subprocess.Popen(["open", str(xcodeproj)])
+            ok("Opened MarsinDictation.xcodeproj — press ⌘R to run")
+        return code
 
 def deploy_iphone(args):
     header("MarsinDictation — iPhone/iPad")
@@ -699,7 +873,7 @@ def main():
     mode.add_argument("--run", action="store_true", help="Run only (auto-rebuilds if dirty)")
     mode.add_argument("--test", action="store_true", help="Build and run all tests")
     mode.add_argument("--install", action="store_true",
-                       help="Publish and install to Program Files + desktop shortcut")
+                       help="Create installer (Windows: Program Files + shortcut, macOS: DMG)")
 
     parser.add_argument("--hold", action="store_true",
                        help="Keep terminal open and tail app logs (tmp/logs/app.log)")

@@ -1,4 +1,5 @@
 import Foundation
+import AVFoundation
 
 public class DictationService: HotkeyDelegate, AudioCaptureDelegate {
     public static let shared = DictationService()
@@ -11,6 +12,10 @@ public class DictationService: HotkeyDelegate, AudioCaptureDelegate {
     private let keystrokeInjector = KeystrokeInjector()
     
     private var isRecording = false
+    private var audioPlayer: AVAudioPlayer?
+    
+    /// Audio playback only enabled with -debug-playback launch argument
+    private let debugPlayback: Bool = ProcessInfo.processInfo.arguments.contains("-debug-playback")
     
     private init() {
         hotkeyManager.delegate = self
@@ -18,23 +23,37 @@ public class DictationService: HotkeyDelegate, AudioCaptureDelegate {
     }
     
     public func start() {
-        print("[DictationService] Starting...")
+        print("[DictationService] Starting... (debugPlayback=\(debugPlayback))")
+        // Pre-request mic permission so first hold-to-record works immediately
+        audioCapture.requestMicrophonePermission { granted in
+            if granted {
+                print("[DictationService] ✅ Mic permission pre-authorized")
+            } else {
+                print("[DictationService] ⚠️ Mic permission not granted")
+            }
+        }
         hotkeyManager.startMonitoring()
     }
     
-    // MARK: - HotkeyDelegate
-    public func dictationHotkeyToggled() {
+    // MARK: - HotkeyDelegate (Hold-to-record)
+    
+    public func dictationHotkeyPressed() {
         if hotkeyManager.isForegroundAppExcluded(exclusionList: []) {
             print("[DictationService] Foreground app excluded — ignoring hotkey")
             return
         }
         
-        if isRecording {
-            print("[DictationService] Stopping recording...")
-            stopRecording()
-        } else {
-            print("[DictationService] Starting recording...")
+        if !isRecording {
+            print("[DictationService] 🎙️ Hold started — recording...")
+            RecordingHUDController.shared.showToast(text: "🔴 Recording...", type: .recording)
             startRecording()
+        }
+    }
+    
+    public func dictationHotkeyReleased() {
+        if isRecording {
+            print("[DictationService] 🛑 Hold released — stopping recording...")
+            stopRecording()
         }
     }
     
@@ -56,6 +75,7 @@ public class DictationService: HotkeyDelegate, AudioCaptureDelegate {
             print("[DictationService] Mic permission granted: \(granted)")
             guard granted else {
                 print("[DictationService] ❌ Mic permission denied — cannot record")
+                RecordingHUDController.shared.showToast(text: "⚠ Mic permission denied", type: .error, duration: 3.0)
                 return
             }
             self?.isRecording = true
@@ -72,16 +92,28 @@ public class DictationService: HotkeyDelegate, AudioCaptureDelegate {
     
     public func captureFailed(error: Error) {
         print("[DictationService] ❌ Capture failed: \(error.localizedDescription)")
+        RecordingHUDController.shared.showToast(text: "⚠ Capture failed", type: .error, duration: 3.0)
         stopRecording()
     }
     
     public func readyToProcessWav(wavData: Data) {
-        print("[DictationService] WAV ready: \(wavData.count) bytes — sending to API...")
+        print("[DictationService] WAV ready: \(wavData.count) bytes")
+        
+        // Debug playback (only with -debug-playback launch argument)
+        if debugPlayback {
+            playbackAudio(wavData: wavData)
+        }
+        
+        // Show transcribing HUD
+        RecordingHUDController.shared.showToast(text: "⏳ Transcribing...", type: .transcribing)
+        
+        // Send to transcription API
         Task {
             do {
-                let apiKey = ProcessInfo.processInfo.environment["OPENAI_API_KEY"]
-                print("[DictationService] API Key present: \(apiKey != nil)")
-                let config = TranscriptionConfig(endpoint: "https://api.openai.com/v1/audio/transcriptions", apiKey: apiKey, model: "whisper-1", language: "en")
+                let sm = SettingsManager.shared
+                let config = sm.buildTranscriptionConfig()
+                print("[DictationService] Using \(sm.provider) → \(config.endpoint)")
+
                 let rawText = try await client.transcribe(wavData: wavData, config: config)
                 print("[DictationService] ✅ Transcription: \(rawText)")
                 let cleaned = TextPostProcessor.process(rawText)
@@ -89,13 +121,34 @@ public class DictationService: HotkeyDelegate, AudioCaptureDelegate {
                 let success = executeInjectionLadder(text: cleaned)
                 print("[DictationService] Injection success: \(success)")
                 
-                let transcript = Transcript(text: cleaned, provider: "openai", model: config.model, state: success ? .success : .pending)
+                if AXIsProcessTrusted() {
+                    RecordingHUDController.shared.showToast(text: "✔ Injected", type: .success, duration: 1.5)
+                } else {
+                    RecordingHUDController.shared.showToast(text: "📋 ⌘V to paste", type: .success, duration: 2.5)
+                }
+                
+                let transcript = Transcript(text: cleaned, provider: sm.provider, model: config.model, state: success ? .success : .pending)
                 TranscriptStore.shared.save(transcript)
                 
             } catch {
                 print("[DictationService] ❌ Transcription error: \(error)")
-                let transcript = Transcript(text: "", provider: "openai", model: "whisper-1", state: .failed_transcription)
+                RecordingHUDController.shared.showToast(text: "⚠ Transcription failed", type: .error, duration: 3.0)
+                let provider = SettingsManager.shared.provider
+                let transcript = Transcript(text: "", provider: provider, model: "unknown", state: .failed_transcription)
                 TranscriptStore.shared.save(transcript)
+            }
+        }
+    }
+    
+    // MARK: - Audio Playback (debug only)
+    private func playbackAudio(wavData: Data) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            do {
+                self?.audioPlayer = try AVAudioPlayer(data: wavData)
+                self?.audioPlayer?.play()
+                print("[DictationService] 🔊 Debug playback...")
+            } catch {
+                print("[DictationService] ⚠️ Playback failed: \(error.localizedDescription)")
             }
         }
     }

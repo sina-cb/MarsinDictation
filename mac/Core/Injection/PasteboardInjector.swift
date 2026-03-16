@@ -1,5 +1,4 @@
 import AppKit
-import Carbon
 
 public class PasteboardInjector: ITextInjector {
     public init() {}
@@ -7,10 +6,11 @@ public class PasteboardInjector: ITextInjector {
     public func inject(text: String) -> Bool {
         let pasteboard = NSPasteboard.general
         
+        // 1. Save current pasteboard contents (best-effort)
+        let changeCount = pasteboard.changeCount
         let previousItems = pasteboard.pasteboardItems?.compactMap { item -> NSPasteboardItem? in
             let newItem = NSPasteboardItem()
-            let types = item.types
-            for type in types {
+            for type in item.types {
                 if let data = item.data(forType: type) {
                     newItem.setData(data, forType: type)
                 }
@@ -18,32 +18,47 @@ public class PasteboardInjector: ITextInjector {
             return newItem
         }
         
+        // 2. Set pasteboard to transcribed text
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
         
-        dispatchCmdV()
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            if let items = previousItems, !items.isEmpty {
-                pasteboard.clearContents()
-                pasteboard.writeObjects(items)
+        // 3. If Accessibility is granted, auto-paste via CGEvent
+        if AXIsProcessTrusted() {
+            Thread.sleep(forTimeInterval: 0.05)
+            dispatchCmdVViaCGEvent()
+            
+            // Restore pasteboard after target app reads it
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                if pasteboard.changeCount == changeCount + 1 {
+                    if let items = previousItems, !items.isEmpty {
+                        pasteboard.clearContents()
+                        pasteboard.writeObjects(items)
+                    }
+                }
             }
+            
+            print("[PasteboardInjector] ✅ Auto-pasted via CGEvent")
+            return true
         }
         
-        return true
+        // 4. No Accessibility — text is on pasteboard, user pastes manually
+        print("[PasteboardInjector] 📋 Text copied to pasteboard (no Accessibility — press ⌘V)")
+        return true  // Return true because the text IS accessible via Cmd+V
     }
     
-    private func dispatchCmdV() {
+    private func dispatchCmdVViaCGEvent() {
         let source = CGEventSource(stateID: .hidSystemState)
-        let vKeyCode: CGKeyCode = 9 // 'v'
+        let vKeyCode: CGKeyCode = 9
         
-        let keyDown = CGEvent(keyboardEventSource: source, virtualKey: vKeyCode, keyDown: true)
-        let keyUp = CGEvent(keyboardEventSource: source, virtualKey: vKeyCode, keyDown: false)
+        guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: vKeyCode, keyDown: true),
+              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: vKeyCode, keyDown: false) else {
+            return
+        }
         
-        keyDown?.flags = .maskCommand
-        keyUp?.flags = .maskCommand
+        keyDown.flags = .maskCommand
+        keyUp.flags = .maskCommand
         
-        keyDown?.post(tap: .cghidEventTap)
-        keyUp?.post(tap: .cghidEventTap)
+        keyDown.post(tap: .cgSessionEventTap)
+        keyUp.post(tap: .cgSessionEventTap)
     }
 }

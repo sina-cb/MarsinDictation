@@ -1,21 +1,28 @@
 import AppKit
 
+/// Fallback injector: types text character-by-character via AppleScript.
+/// Less reliable than PasteboardInjector, but works as a last resort.
 public class KeystrokeInjector: ITextInjector {
     public init() {}
     
     public func inject(text: String) -> Bool {
-        let source = CGEventSource(stateID: .hidSystemState)
-        let utf16Chars = Array(text.utf16)
+        // Use AppleScript to type the text — more reliable than CGEvent for Unicode
+        let escapedText = text
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
         
-        for char in utf16Chars {
-            var keyCode = char
-            let event = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true)
-            event?.keyboardSetUnicodeString(stringLength: 1, unicodeString: &keyCode)
-            event?.post(tap: .cghidEventTap)
-            
-            let eventUp = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: false)
-            eventUp?.keyboardSetUnicodeString(stringLength: 1, unicodeString: &keyCode)
-            eventUp?.post(tap: .cghidEventTap)
+        let script = NSAppleScript(source: """
+            tell application "System Events"
+                keystroke "\(escapedText)"
+            end tell
+        """)
+        
+        var error: NSDictionary?
+        script?.executeAndReturnError(&error)
+        
+        if let error = error {
+            print("[KeystrokeInjector] AppleScript error: \(error)")
+            return false
         }
         
         return true

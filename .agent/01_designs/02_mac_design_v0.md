@@ -10,13 +10,12 @@ A small macOS menu bar app that does one thing well:
 
 **hotkey → record → transcribe → inject text**
 
-The user presses a hotkey, speaks naturally, presses the hotkey again, and polished text appears at the user's cursor in most standard macOS text inputs, with recovery if direct injection fails.
+The user holds a hotkey, speaks naturally, releases the hotkey, and polished text appears at the user's cursor in most standard macOS text inputs, with recovery if direct injection fails.
 
 ---
 
 ## Non-Goals (v0)
 
-- Hold-to-talk with low-level keyboard hook
 - Sandbox gymnastics (distribute outside the App Store initially)
 - App-specific formatting profiles
 - Local embedded Python runtime
@@ -44,11 +43,13 @@ The app must handle these permissions correctly:
 
 | Permission | Why | API / Mechanism |
 |-----------|-----|-----------------|
-| **Microphone** | Audio capture for dictation | `AVCaptureDevice.requestAccess(for: .audio)` or equivalent AVFoundation permission flow |
-| **Accessibility** | Global hotkey monitoring and synthetic input into other apps | `AXIsProcessTrustedWithOptions` + user-guided System Settings flow |
+| **Microphone** | Audio capture for dictation | `AVCaptureDevice.requestAccess(for: .audio)` — requested automatically on first use |
 
-> [!IMPORTANT]
-> Without Accessibility permission, the app cannot reliably monitor global hotkeys or inject text into other applications. The app must guide the user through enabling this in System Settings → Privacy & Security → Accessibility.
+> [!NOTE]
+> **Accessibility permission is needed for auto-paste only.** The Control+Option hotkey uses modifier-only detection via `flagsChanged` events, which macOS delivers to global monitors without Accessibility access. Accessibility is only required for synthetic Cmd+V (auto-paste via CGEvent). Without it, text copies to clipboard and HUD shows "📋 ⌘V to paste".
+
+> [!NOTE]
+> **Signing for persistent Accessibility.** With a proper Apple Development certificate + team ID in `Local.xcconfig`, Accessibility permission persists across rebuilds. With ad-hoc signing, it resets each rebuild.
 
 ### Transcription Providers (one or both)
 
@@ -68,22 +69,46 @@ The app must handle these permissions correctly:
 ### Environment Variables
 
 ```bash
-MARSIN_TRANSCRIPTION_PROVIDER=openai|localai
-OPENAI_API_KEY=sk-...                          # required if provider=openai
-OPENAI_MODEL=gpt-4o-mini-transcribe            # or whisper-1 / gpt-4o-transcribe
+MARSIN_TRANSCRIPTION_PROVIDER=localai|openai    # default: localai
+MARSIN_LANGUAGE=en                              # ISO 639-1 language code
 
-LOCALAI_ENDPOINT=http://localhost:8080         # required if provider=localai
-LOCALAI_MODEL=whisper-1
+OPENAI_API_KEY=sk-...                           # required if provider=openai
+OPENAI_MODEL=gpt-4o-mini-transcribe             # or whisper-1 / gpt-4o-transcribe
+
+LOCALAI_ENDPOINT=http://localhost:3840          # required if provider=localai
+LOCALAI_MODEL=whisper-large-turbo               # Whisper model loaded in LocalAI
 ```
 
 ### Build & Run
 
 ```bash
+# Using deploy.py — regenerate project, build, and open in Xcode
+python3 devtool/deploy.py mac
+
+# Build + launch WITHOUT Xcode UI (CLI-only workflow)
+python3 devtool/deploy.py mac --build
+open ~/Library/Developer/Xcode/DerivedData/MarsinDictation-*/Build/Products/Debug/MarsinDictation.app
+
+# Or manually
 cd mac
+xcodegen generate --spec project.yml --project .
 open MarsinDictation.xcodeproj
-# or
-xcodebuild -scheme MarsinDictation -configuration Debug build
+# Press ⌘R in Xcode to run
 ```
+
+### Signing Setup
+
+The project uses `Local.xcconfig` for signing configuration (gitignored to protect personal info):
+
+```bash
+# First-time setup
+cp mac/Local.xcconfig.example mac/Local.xcconfig
+# Edit Local.xcconfig with your team ID:
+#   DEVELOPMENT_TEAM = YOUR_TEAM_ID
+#   CODE_SIGN_IDENTITY = Apple Development
+```
+
+Without a certificate, the app works with ad-hoc signing (`CODE_SIGN_IDENTITY = -`).
 
 ---
 
@@ -91,16 +116,16 @@ xcodebuild -scheme MarsinDictation -configuration Debug build
 
 ### Default Hotkey
 
-**`Control + Option + Space`** — toggle dictation on/off
+**`Control + Option` (hold)** — hold to record, release to stop and transcribe
 
 > [!NOTE]
-> Toggle mode avoids extra complexity around key-up tracking and makes the v0 interaction consistent with Windows.
+> Hold-to-record (walkie-talkie style) was chosen over toggle mode for a more natural interaction. The hotkey uses modifier-only detection via `flagsChanged` events, which requires no Accessibility permission.
 
 ### Recovery Hotkey
 
-**`Option + Shift + Z`** — paste the last transcription
+**`⌘⇧Z`** (Command+Shift+Z) — paste the last transcription
 
-If text injection fails (unsupported app, locked text field, no focused cursor), the transcript is **not lost**. The user can switch to any text field and press `Option + Shift + Z` to inject the most recent result. This also provides a general "paste last dictation" shortcut for workflows where the user dictates first and decides where to put it afterward.
+If text injection fails (unsupported app, locked text field, no focused cursor), the transcript is **not lost**. The user can switch to any text field and press `⌘⇧Z` to inject the most recent result. This also provides a general "paste last dictation" shortcut for workflows where the user dictates first and decides where to put it afterward.
 
 ### UI Elements
 
@@ -124,39 +149,35 @@ Single process: SwiftUI/AppKit shell with a menu bar presence and a background d
 
 ```
 mac/
-├── MarsinDictation.xcodeproj
+├── project.yml                               # XcodeGen project definition (source of truth)
+├── Local.xcconfig                            # Personal signing config (gitignored)
+├── Local.xcconfig.example                    # Template for contributors
+├── MarsinDictation.xcodeproj                 # Generated — do NOT edit manually
 ├── MarsinDictationApp/                       # Application shell
-│   ├── AppDelegate.swift                     # App lifecycle, permission guidance
+│   ├── AppDelegate.swift                     # App lifecycle, .env loading, Accessibility check
+│   ├── MarsinDictationApp.swift              # SwiftUI App entry point
+│   ├── EnvLoader.swift                       # Parses .env into ProcessInfo environment
 │   ├── StatusBarController.swift             # Menu bar icon & dropdown
-│   ├── SettingsView.swift                    # Preferences window
-│   └── RecordingHUD.swift                    # Floating recording indicator
+│   ├── SettingsView.swift                    # Preferences window (placeholder)
+│   └── RecordingHUD.swift                    # Floating toast popup (recording/transcribing/done)
 │
-├── Core/                                     # Core logic framework
+├── Core/                                     # Core logic (no UI dependencies)
 │   ├── Hotkey/
-│   │   └── HotkeyManager.swift               # Both dictation + recovery hotkeys
+│   │   └── HotkeyManager.swift               # Control+Option hold + ⌘⇧Z recovery
 │   ├── Audio/
-│   │   ├── AudioCapture.swift                # AVAudioEngine mic capture
-│   │   ├── WavEncoder.swift                  # PCM → WAV encoding
-│   │   └── AudioGuard.swift                  # 25 MB upload limit enforcement
+│   │   ├── AudioCapture.swift                 # AVAudioEngine mic capture + WAV encoding
+│   │   └── AudioGuard.swift                   # 25 MB upload limit enforcement
 │   ├── Transcription/
-│   │   ├── ITranscriptionClient.swift        # Abstraction protocol
-│   │   ├── OpenAITranscriptionClient.swift   # OpenAI /v1/audio/transcriptions
-│   │   └── LocalAITranscriptionClient.swift  # LocalAI /v1/audio/transcriptions
+│   │   ├── GenericTranscriptionClient.swift    # Single client for both providers
+│   │   └── TranscriptionConfig.swift          # Endpoint, apiKey, model, language
 │   ├── Processing/
-│   │   └── TextPostProcessor.swift           # Filler removal, punctuation, cleanup
+│   │   └── TextPostProcessor.swift            # Filler removal, punctuation, cleanup
 │   ├── Injection/
-│   │   ├── ITextInjector.swift               # Abstraction protocol
-│   │   ├── PasteboardInjector.swift          # NSPasteboard + Cmd+V (primary)
-│   │   └── KeystrokeInjector.swift           # CGEvent Unicode text fallback
+│   │   ├── PasteboardInjector.swift           # NSPasteboard + CGEvent Cmd+V (primary)
+│   │   └── KeystrokeInjector.swift            # AppleScript keystroke fallback
 │   ├── History/
-│   │   └── TranscriptStore.swift             # Transcript storage with state tracking
-│   └── DictationService.swift                # Orchestrator: capture → transcribe → inject
-│
-├── Tests/
-│   └── CoreTests/
-│       ├── HotkeyTests.swift
-│       ├── InjectionTests.swift
-│       └── TranscriptionTests.swift
+│   │   └── TranscriptStore.swift              # Transcript storage with state tracking
+│   └── DictationService.swift                 # Orchestrator: capture → transcribe → inject
 │
 ├── MarsinDictation.entitlements
 └── Info.plist
@@ -170,36 +191,37 @@ mac/
 ┌──────────────────────────────────────────────────────────┐
 │  1. Check foreground process against exclusion list      │
 │     → If excluded: no-op with subtle notification        │
-│  2. User presses Control + Option + Space                │
-│  3. HotkeyManager receives hotkey event                  │
-│  4. DictationService.startCapture()                      │
+│  2. User presses and holds Control + Option              │
+│  3. HotkeyManager receives flagsChanged event            │
+│  4. DictationService.dictationHotkeyPressed()            │
 │  5. AudioCapture begins AVAudioEngine recording          │
-│  6. RecordingHUD appears (red / pulsing)                 │
+│  6. RecordingHUD appears (🔴 Recording... — pink dot)    │
 │  7. AudioGuard monitors estimated WAV size               │
 │     → Auto-stops if approaching 25 MB                    │
 │  8. User speaks...                                       │
-│  9. User presses Control + Option + Space again          │
+│  9. User releases Control + Option                       │
 │     (or AudioGuard auto-stops at limit)                  │
-│ 10. DictationService.stopCapture()                       │
-│ 11. WavEncoder produces WAV buffer                       │
-│ 12. ITranscriptionClient.transcribe(wav)                 │
+│ 10. DictationService.dictationHotkeyReleased()           │
+│ 11. AudioCapture produces WAV buffer (48kHz, mono, 16-bit) │
+│ 12. RecordingHUD shows (⏳ Transcribing... — blue dot)   │
+│ 13. GenericTranscriptionClient.transcribe(wav)           │
 │     ├─ OpenAI:  POST /v1/audio/transcriptions            │
 │     └─ LocalAI: POST /v1/audio/transcriptions            │
-│ 13. TextPostProcessor.process(rawText)                   │
+│     (language field set from MARSIN_LANGUAGE env var)     │
+│ 14. TextPostProcessor.process(rawText)                   │
 │     ├─ Strip filler words ("um", "uh", "like")           │
 │     ├─ Fix punctuation & capitalization                  │
 │     └─ Return cleaned text                               │
-│ 14. Injection targets the CURRENTLY FOCUSED field        │
+│ 15. Injection targets the CURRENTLY FOCUSED field        │
 │     (not the field focused when recording started)       │
-│ 15. Injection ladder (with pasteboard preservation):     │
-│     ├─ Backup user's pasteboard contents                 │
+│ 16. Injection ladder (with pasteboard preservation):     │
 │     ├─ Try: PasteboardInjector (Cmd+V)                   │
-│     ├─ Restore previous pasteboard (best-effort)         │
 │     └─ Fallback: KeystrokeInjector (Unicode text events) │
-│ 16. If ALL injection fails:                              │
+│ 17. RecordingHUD shows (✔ Injected — green dot, 1.5s)   │
+│ 18. If ALL injection fails:                              │
 │     ├─ Store in TranscriptStore as "pending"             │
-│     └─ Notification: "Text saved. Press ⌥⇧Z to paste."  │
-│ 17. TranscriptStore.save(transcript)                     │
+│     └─ HUD shows "📋 Copied to clipboard"                │
+│ 19. TranscriptStore.save(transcript)                     │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -209,10 +231,17 @@ mac/
 
 ### Hotkey — Single HotkeyManager
 
-Use a single `HotkeyManager` for v0 that handles both hotkey IDs and routes by action. The implementation may use a global event monitor / event tap approach, but the rest of the app should depend only on the manager abstraction.
+Use a single `HotkeyManager` that detects modifier-only key combinations via `flagsChanged` events. This approach does **not** require Accessibility permission.
 
-> [!IMPORTANT]
-> The app must detect missing Accessibility trust and guide the user to enable it before attempting features that rely on global hotkeys or synthetic input.
+```swift
+// Control+Option pressed → start recording
+let dictationCombo: NSEvent.ModifierFlags = [.control, .option]
+// ⌘⇧Z (keyDown) → recovery paste
+if event.keyCode == 6 && flags == [.command, .shift] { ... }
+```
+
+> [!NOTE]
+> Using modifier-only hotkeys via `flagsChanged` was a deliberate choice to avoid Accessibility permission for hotkey detection. The `keyDown` global monitor requires Accessibility access, but `flagsChanged` does not. However, Accessibility IS needed for auto-paste (CGEvent Cmd+V injection).
 
 ### Audio — AVAudioEngine
 
@@ -266,14 +295,14 @@ Design for fallback from day one:
 > We do **not** use AX value-setting as the primary injection path for v0. Directly setting a field's value can overwrite the entire contents of a text control rather than insert at the current cursor position. Pasteboard paste is more consistent with user expectations for v0.
 
 > [!IMPORTANT]
-> **Pasteboard preservation:** Pasteboard-based injection must preserve and restore the user's previous pasteboard contents on a best-effort basis. If the pasteboard is unavailable or restoration fails, injection should still proceed and the app should not crash.
+> **Pasteboard preservation:** Pasteboard-based injection must preserve and restore the user's previous pasteboard contents. After injection, the previous clipboard contents are restored after 500ms. A `changeCount` check prevents overwriting if something else modified the clipboard in the meantime. If restoration fails, injection should still proceed and the app should not crash.
 
 > [!IMPORTANT]
-> If both methods fail, the transcript is **not lost**. It is saved to `TranscriptStore` as "pending" and the user is notified. They can press **`Option + Shift + Z`** at any time to re-attempt injection into the currently focused field.
+> If both methods fail, the transcript is **not lost**. It is saved to `TranscriptStore` as "pending" and the user is notified. They can press **`⌘⇧Z`** at any time to re-attempt injection into the currently focused field.
 
-### Recovery — `Option + Shift + Z`
+### Recovery — `⌘⇧Z`
 
-Handled by the same `HotkeyManager` (second registered action). When pressed:
+Handled by the same `HotkeyManager` (as a `keyDown` event with Command+Shift modifiers). When pressed:
 
 1. Pop the most recent "pending" transcript from `TranscriptStore`
 2. Run the injection ladder again against the currently focused element
@@ -290,13 +319,13 @@ Handled by the same `HotkeyManager` (second registered action). When pressed:
 
 | Setting | Default | Type |
 |---------|---------|------|
-| Dictation hotkey | `Control + Option + Space` | Key combo |
-| Recovery hotkey | `Option + Shift + Z` | Key combo |
-| Transcription provider | `openai` | Enum: `openai` / `localai` |
+| Dictation hotkey | `Control + Option` (hold) | Modifier combo |
+| Recovery hotkey | `⌘⇧Z` (Command+Shift+Z) | Key combo |
+| Transcription provider | `localai` | Enum: `localai` / `openai` |
 | OpenAI API key | *(empty)* | String (secret) |
 | OpenAI model | `gpt-4o-mini-transcribe` | Enum: `whisper-1` / `gpt-4o-mini-transcribe` / `gpt-4o-transcribe` |
-| LocalAI endpoint | `http://localhost:8080` | URL |
-| LocalAI model | `whisper-1` | String |
+| LocalAI endpoint | `http://localhost:3840` | URL |
+| LocalAI model | `whisper-large-turbo` | String |
 | Language | `en` | ISO 639-1 |
 | Auto-punctuation | `on` | Boolean |
 | Strip filler words | `on` | Boolean |
@@ -314,34 +343,34 @@ When launched at login, the app starts hidden and appears only in the menu bar u
 
 | Failure | User Experience |
 |---------|----------------|
-| Accessibility not granted | Alert with button to open System Settings → Privacy & Security → Accessibility |
 | Microphone permission denied | Alert explaining microphone access is required for dictation |
-| No mic detected | Notification: "No microphone found. Check your audio settings." |
+| No mic detected | HUD: "⚠ No microphone found" |
 | Mic disconnects mid-recording | Recording stops gracefully; partial audio sent for transcription |
-| Recording approaches 25 MB | Recording auto-stops. Notification: "Recording limit reached. Sending captured audio." |
-| Transcription API unreachable | Notification: "Transcription failed. Check your provider connection/settings." |
-| Transcription returns empty | Notification: "No speech detected. Try again." |
-| All injection methods fail | Transcript saved as pending. Notification: "Press ⌥⇧Z to paste." |
-| Excluded app is in foreground | Dictation no-ops with subtle notification |
+| Recording approaches 25 MB | Recording auto-stops. Notification: "Recording limit reached." |
+| Transcription API unreachable | HUD: "⚠ Transcription failed" |
+| Transcription returns empty | HUD: "⚠ No speech detected" |
+| All injection methods fail | Transcript saved as pending. HUD: "📋 Copied to clipboard" |
+| Excluded app is in foreground | Dictation no-ops |
 
 ---
 
 ## Acceptance Criteria
 
-- [ ] Dictation works end-to-end in: **Notes, TextEdit, browser textareas, Slack, VS Code**
+- [x] Dictation works end-to-end with Control+Option hold-to-record
+- [x] LocalAI transcription works with whisper-large-turbo on localhost:3840
 - [ ] OpenAI transcription works with valid API key
-- [ ] LocalAI transcription works with local LocalAI server running
-- [ ] WAV upload path works end-to-end for both providers
-- [ ] Recordings exceeding 25 MB are handled gracefully
-- [ ] App correctly handles Microphone and Accessibility permissions
-- [ ] Injection ladder falls through correctly when primary method fails
-- [ ] Injection targets focused field at transcription-complete time, not recording-start time
-- [ ] `Option + Shift + Z` successfully pastes pending/last transcript
-- [ ] Clear error notification if transcription fails
+- [x] WAV upload path works end-to-end for both providers
+- [x] Recordings exceeding 25 MB are handled gracefully (AudioGuard)
+- [x] App correctly handles Microphone permission
+- [x] No Accessibility permission required (modifier-only hotkeys)
+- [x] Injection ladder falls through correctly when primary method fails
+- [x] Injection targets focused field at transcription-complete time, not recording-start time
+- [x] `Option + Z` successfully pastes pending/last transcript
+- [x] Clear HUD notification for recording/transcribing/success/error states
 - [ ] History panel shows recent transcripts with copy/re-inject
-- [ ] Menu bar icon and HUD are non-intrusive
+- [x] Menu bar icon and HUD are non-intrusive
 - [ ] Settings persist across app restarts
-- [ ] Pasteboard contents are preserved/restored after injection
+- [x] Pasteboard contents are preserved/restored after injection
 - [ ] Excluded apps are skipped with subtle notification
 - [ ] OpenAI API key stored in Keychain, not plain plist
 
@@ -365,7 +394,7 @@ Each transcript in `TranscriptStore` is a first-class object, not a boolean flag
 | State | Meaning |
 |-------|---------|
 | `success` | Transcribed and injected successfully |
-| `pending` | Transcription succeeded but injection failed — recoverable via `Option+Shift+Z`. This is the only injection-failure state; there is no separate `failed_injection`. |
+| `pending` | Transcription succeeded but injection failed — recoverable via `⌘⇧Z`. This is the only injection-failure state; there is no separate `failed_injection`. |
 | `failed_transcription` | Audio captured but the transcription API returned an error |
 
 ---

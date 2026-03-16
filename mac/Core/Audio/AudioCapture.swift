@@ -29,10 +29,11 @@ public class AudioCapture: AudioGuardDelegate {
     private var engine: AVAudioEngine?
     private var accumulatedData = Data()
     
-    // Output format: 16kHz mono Int16 — standard for speech-to-text APIs
-    private let recordingSampleRate: Double = 16000.0
+    // Audio format constants
     private let recordingChannels: AVAudioChannelCount = 1
     private let recordingBitsPerSample: UInt32 = 16
+    /// Actual sample rate from the hardware (set when capture starts)
+    private var actualSampleRate: Double = 48000.0
     
     private let audioGuard = AudioGuard()
     
@@ -71,6 +72,7 @@ public class AudioCapture: AudioGuardDelegate {
         // The -10877/AddInstanceForFactory warnings are harmless stderr noise
         let inputNode = newEngine.inputNode
         let hwFormat = inputNode.outputFormat(forBus: 0)
+        actualSampleRate = hwFormat.sampleRate
         
         print("[AudioCapture] Hardware format: \(hwFormat.sampleRate)Hz, \(hwFormat.channelCount)ch, \(hwFormat.commonFormat.rawValue)")
         
@@ -135,9 +137,8 @@ public class AudioCapture: AudioGuardDelegate {
             return
         }
         
-        // Build WAV header for mono Int16 PCM at the hardware sample rate
-        // Note: we use the hardware sample rate since we didn't resample
-        let sampleRate = UInt32(recordingSampleRate)
+        // Build WAV header for mono Int16 PCM at the actual hardware sample rate
+        let sampleRate = UInt32(actualSampleRate)
         let numChannels: UInt16 = UInt16(recordingChannels)
         let bitsPerSample: UInt16 = UInt16(recordingBitsPerSample)
         let byteRate = sampleRate * UInt32(numChannels) * UInt32(bitsPerSample / 8)

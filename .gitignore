@@ -10,9 +10,14 @@ mac/build/
 ios/build/
 *.xcuserstate
 *.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/xcshareddata/
 DerivedData/
 *.dSYM
 *.ipa
+*.orig
+*.rej
+*.patch
 
 # ── Android (Kotlin / Gradle) ────────────────────────────────
 android/app/build/
@@ -38,6 +43,7 @@ ehthumbs.db
 .env
 !.env.example
 secrets/
+mac/Local.xcconfig
 
 # ── Package Managers ─────────────────────────────────────────
 node_modules/
