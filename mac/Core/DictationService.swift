@@ -10,6 +10,7 @@ public class DictationService: HotkeyDelegate, AudioCaptureDelegate {
     
     private let pasteboardInjector = PasteboardInjector()
     private let keystrokeInjector = KeystrokeInjector()
+    private let audioSilencer = AudioSilencer.shared
     
     private var isRecording = false
     private var audioPlayer: AVAudioPlayer?
@@ -45,6 +46,9 @@ public class DictationService: HotkeyDelegate, AudioCaptureDelegate {
         
         if !isRecording {
             print("[DictationService] 🎙️ Hold started — recording...")
+            if SettingsManager.shared.silenceAudioDuringDictation {
+                audioSilencer.silence()
+            }
             RecordingHUDController.shared.showToast(text: "🔴 Recording...", type: .recording)
             startRecording()
         }
@@ -54,6 +58,8 @@ public class DictationService: HotkeyDelegate, AudioCaptureDelegate {
         if isRecording {
             print("[DictationService] 🛑 Hold released — stopping recording...")
             stopRecording()
+            // Safety net: restore audio on release in case readyToProcessWav isn't called
+            audioSilencer.restore()
         }
     }
     
@@ -98,6 +104,9 @@ public class DictationService: HotkeyDelegate, AudioCaptureDelegate {
     
     public func readyToProcessWav(wavData: Data) {
         print("[DictationService] WAV ready: \(wavData.count) bytes")
+        
+        // Restore system audio now that capture is complete
+        audioSilencer.restore()
         
         // Debug playback (only with -debug-playback launch argument)
         if debugPlayback {

@@ -65,7 +65,7 @@ public partial class App : Application
         logger.LogInformation("MarsinDictation starting");
 
         // Initialize transcription client from .env config
-        var provider = Environment.GetEnvironmentVariable("MARSIN_TRANSCRIPTION_PROVIDER") ?? "openai";
+        var provider = Environment.GetEnvironmentVariable("MARSIN_TRANSCRIPTION_PROVIDER") ?? "localai";
         if (provider == "openai")
         {
             var apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
@@ -82,10 +82,10 @@ public partial class App : Application
                 logger.LogWarning("OPENAI_API_KEY not set — transcription disabled");
             }
         }
-        else if (provider == "localai")
+        else
         {
-            var endpoint = Environment.GetEnvironmentVariable("LOCALAI_ENDPOINT") ?? "http://localhost:8080";
-            var model = Environment.GetEnvironmentVariable("LOCALAI_MODEL") ?? "whisper-1";
+            var endpoint = Environment.GetEnvironmentVariable("LOCALAI_ENDPOINT") ?? "http://localhost:3840";
+            var model = Environment.GetEnvironmentVariable("LOCALAI_MODEL") ?? "whisper-large-turbo";
             _transcriptionClient = new OpenAITranscriptionClient(
                 _loggerFactory.CreateLogger<OpenAITranscriptionClient>(),
                 endpoint, null, model);
@@ -221,9 +221,11 @@ public partial class App : Application
         System.Windows.Clipboard.SetText(text);
 
         var state = injected ? TranscriptState.Success : TranscriptState.Pending;
-        var entry = TranscriptEntry.Create(text, "openai",
-            Environment.GetEnvironmentVariable("OPENAI_MODEL") ?? "gpt-4o-mini-transcribe",
-            state);
+        var currentProvider = Environment.GetEnvironmentVariable("MARSIN_TRANSCRIPTION_PROVIDER") ?? "localai";
+        var currentModel = currentProvider == "openai"
+            ? Environment.GetEnvironmentVariable("OPENAI_MODEL") ?? "gpt-4o-mini-transcribe"
+            : Environment.GetEnvironmentVariable("LOCALAI_MODEL") ?? "whisper-large-turbo";
+        var entry = TranscriptEntry.Create(text, currentProvider, currentModel, state);
         _transcriptStore?.Add(entry);
 
         if (injected)

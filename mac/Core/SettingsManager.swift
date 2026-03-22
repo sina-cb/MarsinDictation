@@ -26,6 +26,12 @@ public class SettingsManager: ObservableObject {
     @Published public var openAIAPIKey: String {
         didSet { KeychainHelper.save(key: Keys.openAIAPIKey, value: openAIAPIKey) }
     }
+    @Published public var silenceAudioDuringDictation: Bool {
+        didSet { UserDefaults.standard.set(silenceAudioDuringDictation, forKey: Keys.silenceAudio) }
+    }
+    @Published public var duckLevel: Double {
+        didSet { UserDefaults.standard.set(duckLevel, forKey: Keys.duckLevel) }
+    }
     
     // MARK: - Keys
     
@@ -36,6 +42,8 @@ public class SettingsManager: ObservableObject {
         static let localAIModel = "localAIModel"
         static let openAIModel = "openAIModel"
         static let openAIAPIKey = "openai-api-key"
+        static let silenceAudio = "silenceAudioDuringDictation"
+        static let duckLevel = "duckLevel"
         static let hasSeededFromEnv = "hasSeededFromEnv"
     }
     
@@ -79,6 +87,20 @@ public class SettingsManager: ObservableObject {
         self.openAIAPIKey = KeychainHelper.load(key: Keys.openAIAPIKey)
             ?? ProcessInfo.processInfo.environment["OPENAI_API_KEY"]
             ?? ""
+        
+        // Silence audio during dictation (default: ON)
+        if ud.object(forKey: Keys.silenceAudio) != nil {
+            self.silenceAudioDuringDictation = ud.bool(forKey: Keys.silenceAudio)
+        } else {
+            self.silenceAudioDuringDictation = true
+        }
+        
+        // Duck level (default: 30%)
+        if ud.object(forKey: Keys.duckLevel) != nil {
+            self.duckLevel = ud.double(forKey: Keys.duckLevel)
+        } else {
+            self.duckLevel = 0.3
+        }
     }
     
     // MARK: - Seed from .env (one-time migration)

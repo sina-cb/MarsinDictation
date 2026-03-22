@@ -677,8 +677,7 @@ def deploy_mac(args):
     xcodeproj = MAC_DIR / "MarsinDictation.xcodeproj"
 
     if args.install:
-        # --install: build Release + create DMG installer
-        config = "Release"
+        # --install: build + create DMG installer (always Release, set above)
         build_cmd = [
             "xcodebuild",
             "-project", str(xcodeproj),

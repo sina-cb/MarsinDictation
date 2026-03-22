@@ -17,6 +17,26 @@ struct SettingsView: View {
             }
             .padding(.bottom, 20)
             
+            // Audio Ducking
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Audio Ducking")
+                    .font(.headline)
+                
+                Toggle("Silence audio during dictation", isOn: $settings.silenceAudioDuringDictation)
+                
+                if settings.silenceAudioDuringDictation {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Duck level: \(Int(settings.duckLevel * 100))%")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                        Slider(value: $settings.duckLevel, in: 0.0...0.8, step: 0.05)
+                    }
+                }
+            }
+            .padding(.bottom, 16)
+            
+            Divider().padding(.bottom, 12)
+            
             // Provider Picker
             VStack(alignment: .leading, spacing: 6) {
                 Text("Transcription Provider")
@@ -84,6 +104,7 @@ struct SettingsView: View {
                 
                 LabeledField(label: "Language (ISO 639-1)", text: $settings.language,
                             placeholder: "en")
+                
             }
             .padding(.bottom, 16)
             
@@ -136,6 +157,8 @@ struct SettingsView: View {
         .onChange(of: settings.localAIModel) { _ in flashSaved() }
         .onChange(of: settings.openAIModel) { _ in flashSaved() }
         .onChange(of: settings.openAIAPIKey) { _ in flashSaved() }
+        .onChange(of: settings.silenceAudioDuringDictation) { _ in flashSaved() }
+        .onChange(of: settings.duckLevel) { _ in flashSaved() }
     }
     
     private func flashSaved() {

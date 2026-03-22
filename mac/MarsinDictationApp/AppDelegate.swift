@@ -3,6 +3,8 @@ import SwiftUI
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     var statusBarController: StatusBarController?
+    /// Safety net: uses the shared singleton so it restores the same state DictationService saved
+    private var audioSilencer: AudioSilencer { AudioSilencer.shared }
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         EnvLoader.load()
@@ -23,5 +25,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Hide dock icon completely since LSUIElement = true in Info.plist handles most of it,
         // but it's good practice.
         NSApp.setActivationPolicy(.accessory)
+    }
+    
+    func applicationWillTerminate(_ notification: Notification) {
+        // Safety net: restore system audio if app terminates while dictation hotkey is held
+        audioSilencer.restore()
     }
 }

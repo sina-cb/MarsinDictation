@@ -110,22 +110,30 @@ On first run, settings are seeded from `.env` if present (one-time migration). A
 
 ## Signing Setup
 
-The project uses a `Local.xcconfig` file for code signing configuration. This file is **gitignored** so your personal team ID never enters the repo.
+The Xcode project (`.xcodeproj`) is **auto-generated** by [XcodeGen](https://github.com/yonaskolb/XcodeGen) from `project.yml` and is **gitignored**. Code signing is configured via a `Local.xcconfig` file that is also gitignored — your personal team ID never enters the repo.
 
 ### First-Time Setup
 
-```bash
-# Copy the example config
-cp mac/Local.xcconfig.example mac/Local.xcconfig
-```
+1. **Copy the example config:**
 
-Then edit `mac/Local.xcconfig` with your team ID:
+   ```bash
+   cp mac/Local.xcconfig.example mac/Local.xcconfig
+   ```
 
-```
-// Personal signing — do NOT commit
-DEVELOPMENT_TEAM = YOUR_TEAM_ID
-CODE_SIGN_IDENTITY = Apple Development
-```
+2. **Edit `mac/Local.xcconfig`** with your Apple Development Team ID:
+
+   ```
+   DEVELOPMENT_TEAM = YOUR_TEAM_ID
+   CODE_SIGN_IDENTITY = Apple Development
+   ```
+
+3. **Build the project** — the deploy script runs XcodeGen automatically:
+
+   ```bash
+   python3 devtool/deploy.py mac --install
+   ```
+
+> **Note:** Without `Local.xcconfig`, builds will still work but use ad-hoc signing. Xcode UI builds require `Local.xcconfig` to resolve automatic signing.
 
 ### Finding Your Team ID
 
