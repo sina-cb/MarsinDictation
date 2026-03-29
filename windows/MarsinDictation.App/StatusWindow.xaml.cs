@@ -9,6 +9,8 @@ namespace MarsinDictation.App;
 /// <summary>
 /// Borderless toast-style popup. Hidden by default.
 /// Appears at bottom-center (~10% up from bottom) when triggered.
+/// Uses Win32 MonitorFromWindow to always target the primary monitor,
+/// even after HDMI hot-plug/unplug events.
 /// </summary>
 public partial class StatusWindow : Window
 {
@@ -16,11 +18,34 @@ public partial class StatusWindow : Window
     private const int WS_EX_NOACTIVATE = 0x08000000;
     private const int GWL_EXSTYLE = -20;
 
+    private const int MONITOR_DEFAULTTOPRIMARY = 0x00000001;
+
     [DllImport("user32.dll")]
     private static extern int GetWindowLong(IntPtr hwnd, int index);
 
     [DllImport("user32.dll")]
     private static extern int SetWindowLong(IntPtr hwnd, int index, int newStyle);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct RECT
+    {
+        public int Left, Top, Right, Bottom;
+    }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+    private struct MONITORINFO
+    {
+        public int cbSize;
+        public RECT rcMonitor;
+        public RECT rcWork;
+        public uint dwFlags;
+    }
 
     private readonly DispatcherTimer _hideTimer;
 
@@ -49,6 +74,32 @@ public partial class StatusWindow : Window
 
     private void PositionWindow()
     {
+        // Query the primary monitor's work area via Win32 (immune to WPF caching issues)
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd != IntPtr.Zero)
+        {
+            var hMonitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTOPRIMARY);
+            var mi = new MONITORINFO { cbSize = Marshal.SizeOf<MONITORINFO>() };
+            if (GetMonitorInfo(hMonitor, ref mi))
+            {
+                // Get DPI scaling factor for this window
+                var source = PresentationSource.FromVisual(this);
+                double dpiScaleX = source?.CompositionTarget?.TransformFromDevice.M11 ?? 1.0;
+                double dpiScaleY = source?.CompositionTarget?.TransformFromDevice.M22 ?? 1.0;
+
+                // Convert physical pixels to WPF device-independent units
+                double workLeft = mi.rcWork.Left * dpiScaleX;
+                double workTop = mi.rcWork.Top * dpiScaleY;
+                double workWidth = (mi.rcWork.Right - mi.rcWork.Left) * dpiScaleX;
+                double workHeight = (mi.rcWork.Bottom - mi.rcWork.Top) * dpiScaleY;
+
+                Left = workLeft + (workWidth - ActualWidth) / 2;
+                Top = workTop + workHeight - (workHeight * 0.10) - ActualHeight;
+                return;
+            }
+        }
+
+        // Fallback: use WPF SystemParameters if Win32 call fails
         var workArea = SystemParameters.WorkArea;
         Left = (workArea.Width - ActualWidth) / 2 + workArea.Left;
         Top = workArea.Bottom - (workArea.Height * 0.10) - ActualHeight;

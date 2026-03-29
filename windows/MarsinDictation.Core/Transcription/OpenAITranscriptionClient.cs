@@ -41,7 +41,11 @@ public sealed class OpenAITranscriptionClient : ITranscriptionClient, IDisposabl
         }
         else
         {
-            _httpClient = new HttpClient { BaseAddress = new Uri(baseUrl.TrimEnd('/')) };
+            _httpClient = new HttpClient
+            {
+                BaseAddress = new Uri(baseUrl.TrimEnd('/')),
+                Timeout = TimeSpan.FromMinutes(5)
+            };
             _ownsClient = true;
         }
 

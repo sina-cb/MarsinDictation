@@ -26,9 +26,9 @@ MarsinDictation uses **LocalAI** as its default (and recommended) transcription 
 
 | Setting | Value |
 |---------|-------|
-| **Endpoint** | `http://localhost:3840` |
-| **Model** | `whisper-large-turbo` |
-| **Backend** | `whisper.cpp` (via LocalAI) |
+| **Endpoint** | `http://localhost:3850` |
+| **Model** | `whisper-1` |
+| **Backend** | `whisper` on CUDA 12 GPU (via LocalAI) |
 | **Audio format** | WAV, 48kHz, mono, 16-bit PCM |
 | **API shape** | `POST /v1/audio/transcriptions` (multipart/form-data) |
 | **Language** | `en` (configurable) |
@@ -44,27 +44,27 @@ MarsinDictation uses **LocalAI** as its default (and recommended) transcription 
 brew install localai
 
 # Or via Docker
-docker run -p 3840:8080 localai/localai:latest
+docker run -p 3850:8080 localai/localai:latest
 ```
 
 ### 2. Start with Whisper Model
 
 ```bash
-# Start LocalAI on port 3840 with whisper-large-turbo
-local-ai run whisper-large-turbo --address :3840
+# Start LocalAI on port 3850 with whisper-1
+local-ai run whisper-1 --address :3850
 ```
 
 Or use the Docker approach:
 ```bash
-docker run -p 3840:8080 \
-  -e MODELS=whisper-large-turbo \
+docker run -p 3850:8080 \
+  -e MODELS=whisper-1 \
   localai/localai:latest
 ```
 
 ### 3. Verify
 
 ```bash
-curl http://localhost:3840/v1/models
+curl http://localhost:3850/v1/models
 # Should list whisper-large-turbo
 ```
 
@@ -92,7 +92,7 @@ curl http://localhost:3840/v1/models
 | `whisper-base` | 74M | Fast | OK | Casual use |
 | `whisper-small` | 244M | Medium | Good | Balanced |
 | `whisper-medium` | 769M | Slower | Very good | When quality matters |
-| `whisper-large-turbo` | 809M | Fast (optimized) | **Excellent** | **Recommended** |
+| `whisper-1` | 809M | Fast (optimized) | **Excellent** | **Recommended** |
 
 ---
 
@@ -102,13 +102,13 @@ MarsinDictation sends this request for transcription:
 
 ```http
 POST /v1/audio/transcriptions HTTP/1.1
-Host: localhost:3840
+Host: localhost:3850
 Content-Type: multipart/form-data; boundary=Boundary-UUID
 
 --Boundary-UUID
 Content-Disposition: form-data; name="model"
 
-whisper-large-turbo
+whisper-1
 --Boundary-UUID
 Content-Disposition: form-data; name="language"
 
@@ -137,15 +137,15 @@ Content-Type: audio/wav
 
 Click the **mic icon** in the menu bar → **Settings...**:
 - **Provider**: LocalAI (default)
-- **Endpoint**: `http://localhost:3840`
-- **Model**: `whisper-large-turbo`
+- **Endpoint**: `http://localhost:3850`
+- **Model**: `whisper-1`
 
 ### Via .env (Development)
 
 ```bash
 MARSIN_TRANSCRIPTION_PROVIDER=localai
-LOCALAI_ENDPOINT=http://localhost:3840
-LOCALAI_MODEL=whisper-large-turbo
+LOCALAI_ENDPOINT=http://localhost:3850
+LOCALAI_MODEL=whisper-1
 MARSIN_LANGUAGE=en
 ```
 
@@ -153,7 +153,7 @@ MARSIN_LANGUAGE=en
 
 1. **In-app Settings** (UserDefaults) — takes priority
 2. **Environment variables** (`.env` file) — fallback for development
-3. **Hardcoded defaults** — `localai`, `localhost:3840`, `whisper-large-turbo`, `en`
+3. **Hardcoded defaults** — `localai`, `localhost:3850`, `whisper-1`, `en`
 
 ---
 
@@ -161,10 +161,10 @@ MARSIN_LANGUAGE=en
 
 | Issue | Solution |
 |-------|----------|
-| "Transcription failed" | Check `curl http://localhost:3840/v1/models` — is LocalAI running? |
+| "Transcription failed" | Check `curl http://localhost:3850/v1/models` — is LocalAI running? |
 | Slow transcription | Try a smaller model (`whisper-small`) or check CPU/GPU load |
 | Wrong language | Set language in Settings or `.env` (`MARSIN_LANGUAGE=en`) |
-| Model not found | Run `local-ai run whisper-large-turbo` to download it |
+| Model not found | Run `local-ai run whisper-1` to download it |
 | Port conflict | Change port: `local-ai run --address :3841` and update endpoint in Settings |
 
 ---

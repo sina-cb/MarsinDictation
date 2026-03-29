@@ -84,8 +84,8 @@ public partial class App : Application
         }
         else
         {
-            var endpoint = Environment.GetEnvironmentVariable("LOCALAI_ENDPOINT") ?? "http://localhost:3840";
-            var model = Environment.GetEnvironmentVariable("LOCALAI_MODEL") ?? "whisper-large-turbo";
+            var endpoint = Environment.GetEnvironmentVariable("LOCALAI_ENDPOINT") ?? "http://localhost:3850";
+            var model = Environment.GetEnvironmentVariable("LOCALAI_MODEL") ?? "whisper-1";
             _transcriptionClient = new OpenAITranscriptionClient(
                 _loggerFactory.CreateLogger<OpenAITranscriptionClient>(),
                 endpoint, null, model);
@@ -183,20 +183,33 @@ public partial class App : Application
             if (_transcriptionClient != null)
             {
                 _statusWindow?.ShowToast("⏳ Transcribing...", ToastType.Playing, 30.0);
-                var result = await _transcriptionClient.TranscribeAsync(wavData);
+                try
+                {
+                    // Downsample to 16kHz/16-bit/mono before uploading
+                    var dsLogger = _loggerFactory!.CreateLogger("WavDownsampler");
+                    var optimizedWav = MarsinDictation.Core.Audio.WavDownsampler.Downsample(wavData, dsLogger);
 
-                if (result.Success)
-                {
-                    _loggerFactory!.CreateLogger<App>()
-                        .LogInformation("📝 Transcription: \"{Text}\"", result.Text);
-                    _lastTranscription = result.Text;
-                    DoInjectText(result.Text!);
+                    var result = await _transcriptionClient.TranscribeAsync(optimizedWav);
+
+                    if (result.Success)
+                    {
+                        _loggerFactory!.CreateLogger<App>()
+                            .LogInformation("📝 Transcription: \"{Text}\"", result.Text);
+                        _lastTranscription = result.Text;
+                        DoInjectText(result.Text!);
+                    }
+                    else
+                    {
+                        _loggerFactory!.CreateLogger<App>()
+                            .LogWarning("Transcription failed: {Error}", result.Error);
+                        _statusWindow?.ShowToast("⚠ Transcription failed", ToastType.Idle, 3.0);
+                    }
                 }
-                else
+                catch (Exception ex)
                 {
                     _loggerFactory!.CreateLogger<App>()
-                        .LogWarning("Transcription failed: {Error}", result.Error);
-                    _statusWindow?.ShowToast("⚠ Transcription failed", ToastType.Idle, 3.0);
+                        .LogError(ex, "Transcription/injection pipeline error");
+                    _statusWindow?.ShowToast("⚠ Error — use Alt+Shift+Z to recover", ToastType.Idle, 4.0);
                 }
             }
             else
@@ -217,9 +230,6 @@ public partial class App : Application
         var logger = _loggerFactory!.CreateLogger<App>();
         bool injected = _injector?.TryInjectText(text) ?? false;
 
-        // Always copy to clipboard as backup
-        System.Windows.Clipboard.SetText(text);
-
         var state = injected ? TranscriptState.Success : TranscriptState.Pending;
         var currentProvider = Environment.GetEnvironmentVariable("MARSIN_TRANSCRIPTION_PROVIDER") ?? "localai";
         var currentModel = currentProvider == "openai"
@@ -234,6 +244,8 @@ public partial class App : Application
         }
         else
         {
+            // Only touch clipboard as a last-resort fallback when injection fails
+            try { System.Windows.Clipboard.SetText(text); } catch { /* clipboard locked */ }
             logger.LogWarning("Injection failed — copied to clipboard");
             _statusWindow?.ShowToast("📋 Copied to clipboard (Ctrl+V)", ToastType.Idle, 3.0);
         }

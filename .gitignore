@@ -60,3 +60,8 @@ deploy/__pycache__/
 
 # ── Metrics Ledger ───────────────────────────────────────────
 .metrics/
+
+# ZeroG runtime (machine-specific)
+.agent/workspace.yaml
+.agent/pids/
+.vscode-antigravity/
