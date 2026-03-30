@@ -97,7 +97,7 @@ Settings are available from the menu bar: **mic icon → Settings...**
 
 | Setting | Storage | Default |
 |---------|---------|---------|
-| Transcription provider | UserDefaults | `localai` |
+| Transcription provider | UserDefaults | `embedded` |
 | Language | UserDefaults | `en` |
 | LocalAI endpoint | UserDefaults | `http://localhost:3840` |
 | LocalAI model | UserDefaults | `whisper-large-turbo` |
@@ -233,7 +233,7 @@ All settings are in the root `.env` file (see `.env.example`):
 
 | Setting | Description |
 |---------|-------------|
-| `MARSIN_TRANSCRIPTION_PROVIDER` | `localai` (default) or `openai` |
+| `MARSIN_TRANSCRIPTION_PROVIDER` | `embedded` (default) or `openai` |
 | `MARSIN_LANGUAGE` | ISO 639-1 code, e.g. `en` |
 | `LOCALAI_ENDPOINT` | LocalAI server URL |
 | `LOCALAI_MODEL` | Whisper model name |

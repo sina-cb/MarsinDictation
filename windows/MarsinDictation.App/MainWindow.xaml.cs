@@ -8,15 +8,17 @@ namespace MarsinDictation.App;
 public partial class MainWindow : Window
 {
     private readonly SettingsManager? _settingsManager;
+    private readonly SecretStore? _secretStore;
 
     public MainWindow()
     {
         InitializeComponent();
     }
 
-    public MainWindow(SettingsManager settingsManager) : this()
+    public MainWindow(SettingsManager settingsManager, SecretStore secretStore) : this()
     {
         _settingsManager = settingsManager;
+        _secretStore = secretStore;
         LoadSettingsToUI();
     }
 
@@ -33,7 +35,7 @@ public partial class MainWindow : Window
         TxtLocalAIEndpoint.Text = s.LocalAIEndpoint;
         TxtLocalAIModel.Text = s.LocalAIModel;
         
-        TxtOpenAIKey.Password = Environment.GetEnvironmentVariable("OPENAI_API_KEY") ?? "";
+        TxtOpenAIKey.Password = _secretStore?.Get("OPENAI_API_KEY") ?? Environment.GetEnvironmentVariable("OPENAI_API_KEY") ?? "";
         
         foreach (ComboBoxItem item in ComboOpenAIModel.Items)
         {
@@ -85,12 +87,11 @@ public partial class MainWindow : Window
         _settingsManager.Save();
         
         // Temporarily set env var for OpenAI API key to make it available to OpenAITranscriptionClient during current run
-        // In a real app we'd use DPAPI SecretStore, replacing .env. For now, environment is enough since
-        // the App reads from Environment.GetEnvironmentVariable("OPENAI_API_KEY").
+        // We use DPAPI SecretStore for persistence, but we also set the Process environment so the client picks it up immediately.
         var key = TxtOpenAIKey.Password;
         if (!string.IsNullOrWhiteSpace(key))
         {
-            Environment.SetEnvironmentVariable("OPENAI_API_KEY", key, EnvironmentVariableTarget.User);
+            _secretStore?.Set("OPENAI_API_KEY", key);
             Environment.SetEnvironmentVariable("OPENAI_API_KEY", key, EnvironmentVariableTarget.Process);
         }
 

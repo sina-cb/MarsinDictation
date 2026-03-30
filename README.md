@@ -10,7 +10,7 @@ Press a hotkey, speak naturally, and polished text appears at your cursor. Power
 Ensure you have the [Xcode Command Line Tools](https://developer.apple.com/xcode/features/) installed.
 ```bash
 # Build, package, and permanently install MarsinDictation.app to ~/Applications
-python3 devtool/deploy.py macos --install
+python3 devtool/deploy.py mac --install
 
 # Or alternatively, build and test directly from source without installing:
 python3 devtool/deploy.py --run
@@ -87,7 +87,7 @@ If you cannot use OpenAI on your machine due to network or policy restrictions, 
 - **AI Auto-Editing** — Filler words ("um", "uh") are stripped, grammar is corrected, and punctuation is applied automatically.
 - **Recovery Hotkey** — If text injection fails, press `Alt+Shift+Z` (Windows) or `⌘⇧Z` (macOS) to paste your last dictation into any text field.
 - **Triple Transcription Providers** — Embedded Whisper (zero-config, GPU-accelerated), OpenAI API (cloud), or LocalAI (external containers).
-- **Privacy-First** — Audio is never retained after transcription. API keys use platform-secure storage (DPAPI / Keychain). No telemetry.
+- **Privacy-First** — Audio is never retained after transcription, and zero telemetry is collected. The system securely protects keys natively via macOS Keychain. A local, offline transcription history is retained to your disk by default but can be disabled at any time.
 
 ## Project Structure
 
@@ -107,5 +107,5 @@ Start with [`.agent/00_gol/00_codex.md`](.agent/00_gol/00_codex.md) — it is th
 
 ## License
 
-MIT
+[MIT License](LICENSE)
 

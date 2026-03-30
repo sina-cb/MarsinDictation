@@ -18,7 +18,7 @@ MarsinDictation should be developed with an agent-driven agent-first workflow. T
 
 Use this order:
 
-1. Sina's direct instructions
+1. Sina/User's direct instructions
 2. `00_gol/` rules such as privacy and git requirements
 3. Relevant design and project docs
 4. Current code
@@ -81,7 +81,7 @@ If something is hard to test directly, isolate the boundary and test the logic a
 - Do not leave behind dead scaffolding, misleading comments, random temp files, or machine-specific assumptions.
 - Never put secrets in the repo.
 - Update nearby docs when behavior changes.
-- Do not commit, push, tag, or publish releases unless Sina explicitly asks.
+- Do not commit, push, tag, or publish releases unless Sina/User explicitly asks.
 
 ---
 

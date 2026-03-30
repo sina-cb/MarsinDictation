@@ -106,7 +106,7 @@ Examples:
 - `v0.2.0` — second milestone
 
 Rules:
-- Tags are created only by Sina or at Sina's explicit instruction.
+- Tags are created only by Sina/User or at Sina/User's explicit instruction.
 - The agent must **never** create tags, push tags, or publish releases unless explicitly asked.
 - Tags should point to commits on `main`.
 
@@ -117,7 +117,7 @@ Rules:
 
 ## Agent Git Rules
 
-- The agent must **not** commit, push, tag, or create releases unless explicitly instructed by Sina.
+- The agent must **not** commit, push, tag, or create releases unless explicitly instructed by Sina/User.
 - The agent may stage changes and describe what would be committed, but must wait for approval.
 - The agent should keep the working tree clean — no uncommitted temp files, debug artifacts, or stray changes.
 - If the agent discovers uncommitted changes from a previous session, it should mention them rather than silently committing or discarding.

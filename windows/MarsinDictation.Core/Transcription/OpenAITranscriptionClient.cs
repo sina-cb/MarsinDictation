@@ -93,7 +93,12 @@ public sealed class OpenAITranscriptionClient : ITranscriptionClient, IDisposabl
                 return new TranscriptionResult(true, "[no audio]", null);
             }
 
-            _logger.LogInformation("Transcription result: \"{Text}\"", text);
+#if DEBUG
+            if (Environment.GetEnvironmentVariable("MARSIN_ENABLE_SENSITIVE_LOGS") == "1")
+            {
+                _logger.LogInformation("Transcription result: \"{Text}\"", text);
+            }
+#endif
             return new TranscriptionResult(true, text.Trim(), null);
         }
         catch (TaskCanceledException) when (ct.IsCancellationRequested)

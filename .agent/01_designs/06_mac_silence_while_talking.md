@@ -3,7 +3,7 @@
 > **Status:** Approved — Implemented
 > **Author:** Engineering
 > **Date:** 2026-03-19
-> **Depends on:** [02_mac_design_v0.md](file:///Users/ssolaimanpour/workspace/MarsinDictation/.agent/01_designs/02_mac_design_v0.md)
+> **Depends on:** [02_mac_design_v0.md](./02_mac_design_v0.md)
 
 ---
 

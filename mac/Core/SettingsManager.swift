@@ -59,7 +59,7 @@ public class SettingsManager: ObservableObject {
         static let localAIEndpoint = "http://localhost:3840"
         static let localAIModel = "whisper-large-turbo"
         static let openAIModel = "gpt-4o-mini-transcribe"
-        static let whisperModel = "ggml-base.en.bin"
+        static let whisperModel = "ggml-large-v3-turbo-q5_0.bin"
     }
     
     // MARK: - Init

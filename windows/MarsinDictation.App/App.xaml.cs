@@ -29,6 +29,7 @@ public partial class App : Application
     private AudioRecorder? _audioRecorder;
     private AudioPlayer? _audioPlayer;
     private TranscriptStore? _transcriptStore;
+    private SecretStore? _secretStore;
     private SettingsManager? _settingsManager;
     private ILoggerFactory? _loggerFactory;
     private ITranscriptionClient? _transcriptionClient;
@@ -72,6 +73,18 @@ public partial class App : Application
         var logger = _loggerFactory.CreateLogger<App>();
         logger.LogInformation("MarsinDictation starting");
 
+        _secretStore = new SecretStore(_loggerFactory.CreateLogger<SecretStore>());
+
+        // Run one-time DPAPI migration from insecure User Registry keys
+        var legacyUserKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY", EnvironmentVariableTarget.User);
+        if (!string.IsNullOrWhiteSpace(legacyUserKey))
+        {
+            logger.LogInformation("Migrating legacy OPENAI_API_KEY from User Environment to DPAPI SecretStore...");
+            _secretStore.Set("OPENAI_API_KEY", legacyUserKey);
+            Environment.SetEnvironmentVariable("OPENAI_API_KEY", null, EnvironmentVariableTarget.User);
+            logger.LogInformation("Legacy key eliminated from User Environment.");
+        }
+
         // Initialize transcription client from Settings (with .env fallback)
         var provider = _settingsManager.Settings.TranscriptionProvider;
         var envProvider = Environment.GetEnvironmentVariable("MARSIN_TRANSCRIPTION_PROVIDER");
@@ -79,7 +92,7 @@ public partial class App : Application
 
         if (provider == "openai")
         {
-            var apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
+            var apiKey = _secretStore.Get("OPENAI_API_KEY") ?? Environment.GetEnvironmentVariable("OPENAI_API_KEY");
             var model = _settingsManager.Settings.OpenAIModel;
             if (!string.IsNullOrEmpty(apiKey))
             {
@@ -127,7 +140,7 @@ public partial class App : Application
                     _settingsManager.Settings.TranscriptionProvider = "openai";
                     _settingsManager.Save();
                     // Just a warning, will need restart to apply fully, or we load OpenAI if API key exists
-                    var apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
+                    var apiKey = _secretStore.Get("OPENAI_API_KEY") ?? Environment.GetEnvironmentVariable("OPENAI_API_KEY");
                     var oaiModel = _settingsManager.Settings.OpenAIModel;
                     if (!string.IsNullOrEmpty(apiKey))
                     {
@@ -201,7 +214,7 @@ public partial class App : Application
             logger.LogError(ex, "Failed to register hotkeys");
         }
 
-        _mainWindow = new MainWindow(_settingsManager);
+        _mainWindow = new MainWindow(_settingsManager, _secretStore);
 
         _trayController = new TrayController(
             onSettingsClicked: () => { _mainWindow.Show(); _mainWindow.Activate(); },
@@ -270,8 +283,13 @@ public partial class App : Application
 
                     if (result.Success)
                     {
-                        _loggerFactory!.CreateLogger<App>()
-                            .LogInformation("📝 Transcription: \"{Text}\"", result.Text);
+                        var appLogger = _loggerFactory!.CreateLogger<App>();
+#if DEBUG
+                        if (Environment.GetEnvironmentVariable("MARSIN_ENABLE_SENSITIVE_LOGS") == "1")
+                        {
+                            appLogger.LogInformation("📝 Transcription: \"{Text}\"", result.Text);
+                        }
+#endif
                         _lastTranscription = result.Text;
                         DoInjectText(result.Text!);
                     }
@@ -316,8 +334,11 @@ public partial class App : Application
             "localai" => _settingsManager?.Settings.LocalAIModel ?? "whisper-1",
             _ => _settingsManager?.Settings.WhisperModel ?? "ggml-large-v3-turbo-q5_0.bin"
         };
-        var entry = TranscriptEntry.Create(text, currentProvider, currentModel, state);
-        _transcriptStore?.Add(entry);
+        if (_settingsManager?.Settings.LocalHistory == true)
+        {
+            var entry = TranscriptEntry.Create(text, currentProvider, currentModel, state);
+            _transcriptStore?.Add(entry);
+        }
 
         if (injected)
         {
@@ -347,7 +368,12 @@ public partial class App : Application
                 return;
             }
 
-            logger.LogInformation("Recovery: \"{Text}\"", _lastTranscription);
+#if DEBUG
+            if (Environment.GetEnvironmentVariable("MARSIN_ENABLE_SENSITIVE_LOGS") == "1")
+            {
+                logger.LogInformation("Recovery: \"{Text}\"", _lastTranscription);
+            }
+#endif
 
             // Wait for user to release Alt+Shift+Z keys before injecting
             await Task.Delay(200);
