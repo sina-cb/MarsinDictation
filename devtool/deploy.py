@@ -555,10 +555,22 @@ def do_install(dry_run=False):
                     print(f"  {line}")
             return 1
 
+    # 1.5 Download model binary if not cached
+    model_name = "ggml-large-v3-turbo-q5_0.bin"
+    model_cache = ROOT / "tmp" / model_name
+    if not model_cache.exists():
+        info(f"Downloading model {model_name} to cache (~547MB)...")
+        if not dry_run:
+            model_cache.parent.mkdir(parents=True, exist_ok=True)
+            import urllib.request
+            urllib.request.urlretrieve(f"https://huggingface.co/ggerganov/whisper.cpp/resolve/main/{model_name}", str(model_cache))
+            ok("Model downloaded")
+
     # 2. Copy to Program Files (requires admin — UAC prompt)
     info(f"Installing to {INSTALL_DIR} (requires admin)...")
     if dry_run:
         dim(f"  [dry-run] robocopy {publish_dir} {INSTALL_DIR}")
+        dim(f"  [dry-run] copy {model_cache} {INSTALL_DIR}")
     else:
         # Write a temp .ps1 script to avoid nested-quote issues with spaces in paths
         import tempfile
@@ -566,6 +578,9 @@ def do_install(dry_run=False):
         script_path.write_text(
             f'Start-Process -FilePath "robocopy.exe"'
             f' -ArgumentList @(\'"{publish_dir}"\', \'"{INSTALL_DIR}"\', "/MIR", "/NJH", "/NJS", "/NDL", "/NC", "/NS")'
+            f' -Verb RunAs -Wait\n'
+            f'Start-Process -FilePath "cmd.exe"'
+            f' -ArgumentList @("/C", "copy", "/Y", \'"{model_cache}"\', \'"{INSTALL_DIR}\\{model_name}"\')'
             f' -Verb RunAs -Wait\n',
             encoding="utf-8"
         )

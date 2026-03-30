@@ -35,7 +35,7 @@ public sealed class TrayController : IDisposable
         settingsItem.Click += (_, _) => _onSettingsClicked();
         menu.Items.Add(settingsItem);
 
-        var historyItem = new MenuItem { Header = "History" };
+        var historyItem = new MenuItem { Header = "History (coming soon)", IsEnabled = false };
         historyItem.Click += (_, _) => { /* Phase 5: open history panel */ };
         menu.Items.Add(historyItem);
 

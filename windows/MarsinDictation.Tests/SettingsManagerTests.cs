@@ -39,22 +39,23 @@ public class SettingsManagerTests : EvidenceTest, IDisposable
     [Fact]
     public void Defaults_MatchDesignDoc()
     {
-        Setup("New AppSettings() instance — no loading, pure constructor defaults (9 fields)");
+        Setup("New AppSettings() instance — no loading, pure constructor defaults (11 fields)");
         Intent("The AppSettings constructor defaults must exactly match the design doc settings table");
-        Expect("All 9 constructor defaults match the Settings (v0) table in 01_win_design_v0.md");
+        Expect("All 11 constructor defaults match the Settings (v0) table in 01_win_design_v0.md");
 
         var settings = new AppSettings();
 
-        AssertEvidence("TranscriptionProvider", "openai", settings.TranscriptionProvider);
+        AssertEvidence("TranscriptionProvider", "embedded", settings.TranscriptionProvider);
         AssertEvidence("OpenAIModel", "gpt-4o-mini-transcribe", settings.OpenAIModel);
         AssertEvidence("LocalAIModel", "whisper-1", settings.LocalAIModel);
-        AssertEvidence("LocalAIEndpoint", "http://localhost:8080", settings.LocalAIEndpoint);
+        AssertEvidence("LocalAIEndpoint", "http://localhost:3850", settings.LocalAIEndpoint);
+        AssertEvidence("WhisperModel", "ggml-large-v3-turbo-q5_0.bin", settings.WhisperModel);
         AssertEvidence("Language", "en", settings.Language);
         AssertEvidence("AutoPunctuation", true, settings.AutoPunctuation);
         AssertEvidence("StripFillerWords", true, settings.StripFillerWords);
         AssertEvidence("LaunchAtStartup", false, settings.LaunchAtStartup);
         AssertEvidence("LocalHistory", true, settings.LocalHistory);
-        Pass("all 9 constructor defaults match the design document");
+        Pass("all 11 constructor defaults match the design document");
     }
 
     [Fact]
@@ -62,22 +63,23 @@ public class SettingsManagerTests : EvidenceTest, IDisposable
     {
         Setup($"Empty temp directory ({_testDir}), no settings.json exists");
         Intent("Loading settings when no file exists should create the file with design-doc defaults");
-        Expect("File is created on disk, all 9 settings match design-doc defaults (same 9 as constructor)");
+        Expect("File is created on disk, all 11 settings match design-doc defaults (same 11 as constructor)");
 
         var manager = new SettingsManager(NullLogger<SettingsManager>.Instance, _testFilePath);
         manager.Load();
 
         AssertEvidence("Settings file created on disk", true, File.Exists(_testFilePath));
-        AssertEvidence("TranscriptionProvider", "openai", manager.Settings.TranscriptionProvider);
+        AssertEvidence("TranscriptionProvider", "embedded", manager.Settings.TranscriptionProvider);
         AssertEvidence("OpenAIModel", "gpt-4o-mini-transcribe", manager.Settings.OpenAIModel);
         AssertEvidence("LocalAIModel", "whisper-1", manager.Settings.LocalAIModel);
-        AssertEvidence("LocalAIEndpoint", "http://localhost:8080", manager.Settings.LocalAIEndpoint);
+        AssertEvidence("LocalAIEndpoint", "http://localhost:3850", manager.Settings.LocalAIEndpoint);
+        AssertEvidence("WhisperModel", "ggml-large-v3-turbo-q5_0.bin", manager.Settings.WhisperModel);
         AssertEvidence("Language", "en", manager.Settings.Language);
         AssertEvidence("AutoPunctuation", true, manager.Settings.AutoPunctuation);
         AssertEvidence("StripFillerWords", true, manager.Settings.StripFillerWords);
         AssertEvidence("LaunchAtStartup", false, manager.Settings.LaunchAtStartup);
         AssertEvidence("LocalHistory", true, manager.Settings.LocalHistory);
-        Pass("all 9 defaults match design doc, settings.json was created on disk");
+        Pass("all 11 defaults match design doc, settings.json was created on disk");
     }
 
     [Fact]
@@ -120,7 +122,7 @@ public class SettingsManagerTests : EvidenceTest, IDisposable
         var manager = new SettingsManager(NullLogger<SettingsManager>.Instance, _testFilePath);
         manager.Load(); // should not throw
 
-        AssertEvidence("TranscriptionProvider (default)", "openai", manager.Settings.TranscriptionProvider);
+        AssertEvidence("TranscriptionProvider (default)", "embedded", manager.Settings.TranscriptionProvider);
         AssertEvidence("Language (default)", "en", manager.Settings.Language);
         AssertEvidence("LaunchAtStartup (default)", false, manager.Settings.LaunchAtStartup);
         AssertEvidence("LocalHistory (default)", true, manager.Settings.LocalHistory);
@@ -142,7 +144,7 @@ public class SettingsManagerTests : EvidenceTest, IDisposable
         var manager = new SettingsManager(NullLogger<SettingsManager>.Instance, _testFilePath);
         manager.Load(); // should not throw
 
-        AssertEvidence("TranscriptionProvider (default)", "openai", manager.Settings.TranscriptionProvider);
+        AssertEvidence("TranscriptionProvider (default)", "embedded", manager.Settings.TranscriptionProvider);
         AssertEvidence("Language (default)", "en", manager.Settings.Language);
         Pass("empty file did not crash — settings fell back to defaults");
     }

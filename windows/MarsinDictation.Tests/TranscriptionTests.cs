@@ -3,6 +3,7 @@ using MarsinDictation.Core.Transcription;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 using Xunit.Abstractions;
+using System.Diagnostics;
 
 namespace MarsinDictation.Tests;
 
@@ -132,5 +133,92 @@ public class TranscriptionTests : EvidenceTest
         }
         // Fallback: 4 levels up from bin/Debug/net8.0-windows/
         return Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
+    }
+
+    [Fact]
+    public async Task UserVoice_HelloWorld_Embedded()
+    {
+        Setup("Embedded Whisper API testing using Whisper.net.");
+        Intent("User Voice: Hello World! — real Embedded Whisper transcription using locally downloaded ggml model.");
+
+        var repoRoot = FindRepoRoot();
+        var wavPath = Path.Combine(repoRoot, "windows", "MarsinDictation.Tests", "TestData", "FirstHello.wav");
+        var appDataModel = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "MarsinDictation", "models", "ggml-large-v3-turbo-q5_0.bin");
+
+        if (!File.Exists(wavPath))
+        {
+            Pass("SKIPPED — test audio not yet recorded.");
+            return;
+        }
+
+        if (!File.Exists(appDataModel))
+        {
+            Pass("SKIPPED — Embedded model not yet downloaded (547MB). It will be manually tested from App UI.");
+            return;
+        }
+
+        Expect("Embedded Whisper transcription contains 'hello' and 'world' (case-insensitive)");
+
+        // We must supply 16kHz, 16-bit Mono.
+        // We use WavDownsampler like the App does.
+        var wavData = File.ReadAllBytes(wavPath);
+        var dsLogger = NullLogger.Instance;
+        var optimizedWav = MarsinDictation.Core.Audio.WavDownsampler.Downsample(wavData, dsLogger);
+
+        Got("WAV original size", $"{wavData.Length} bytes");
+        Got("WAV downsampled size", $"{optimizedWav.Length} bytes");
+
+        using var client = new WhisperTranscriptionClient(appDataModel, "en");
+        
+        // This implicitly loads the model.
+        var result = await client.TranscribeAsync(optimizedWav);
+
+        Got("Success", result.Success);
+        Got("Transcribed text", result.Text);
+        Got("Error", result.Error);
+
+        AssertEvidence("Transcription succeeded", true, result.Success);
+        var textLower = result.Text!.ToLowerInvariant();
+        AssertEvidence("Contains 'hello'", true, textLower.Contains("hello"));
+        AssertEvidence("Contains 'world'", true, textLower.Contains("world"));
+        Pass($"Embedded Whisper transcribed user voice as: \"{result.Text}\"");
+    }
+
+    [Fact]
+    [Trait("Category", "GPU_Benchmark")]
+    public async Task Benchmark_SubSecond_GPU_VRAM()
+    {
+        var repoRoot = FindRepoRoot();
+        var wavPath = Path.Combine(repoRoot, "windows", "MarsinDictation.Tests", "TestData", "FirstHello.wav");
+        var appDataModel = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "MarsinDictation", "models", "ggml-large-v3-turbo-q5_0.bin");
+
+        if (!File.Exists(wavPath) || !File.Exists(appDataModel))
+        {
+            Pass("SKIPPED — Missing WAV or Model");
+            return;
+        }
+
+        var client = new WhisperTranscriptionClient(appDataModel, "en");
+        
+        // 1. Warmup (Eager Load) - this hides the 10s OpenCL/CUDA JIT penalty
+        var sw = Stopwatch.StartNew();
+        client.LoadModel();
+        sw.Stop();
+        Pass($"[BENCHMARK] GPU VRAM allocation & shader compilation: {sw.ElapsedMilliseconds}ms");
+
+        var audioBytes = await File.ReadAllBytesAsync(wavPath);
+        
+        // 2. Loop
+        for (int i = 1; i <= 3; i++)
+        {
+            sw.Restart();
+            var result = await client.TranscribeAsync(audioBytes);
+            sw.Stop();
+            Pass($"[BENCHMARK] Inference {i}: {sw.ElapsedMilliseconds}ms (Success: {result.Success}, Text: '{result.Text?.Trim()}')");
+            
+            Assert.True(sw.ElapsedMilliseconds < 1500, $"Inference {i} took {sw.ElapsedMilliseconds}ms, not sub-second!");
+        }
     }
 }

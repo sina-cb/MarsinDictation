@@ -90,7 +90,7 @@ public sealed class OpenAITranscriptionClient : ITranscriptionClient, IDisposabl
             if (string.IsNullOrWhiteSpace(text))
             {
                 _logger.LogInformation("Transcription returned empty text");
-                return new TranscriptionResult(false, null, "No speech detected");
+                return new TranscriptionResult(true, "[no audio]", null);
             }
 
             _logger.LogInformation("Transcription result: \"{Text}\"", text);

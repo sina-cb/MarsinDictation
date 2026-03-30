@@ -1,3 +1,4 @@
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
 using Microsoft.Extensions.Logging;
@@ -61,15 +62,25 @@ public partial class App : Application
             builder.AddProvider(new MarsinDictation.Core.Logging.FileLoggerProvider(logFile));
         });
 
+        // Initialize core services first so we have accurate settings configurations
+        _settingsManager = new SettingsManager(_loggerFactory.CreateLogger<SettingsManager>());
+        _settingsManager.Load();
+
+        _transcriptStore = new TranscriptStore(_loggerFactory.CreateLogger<TranscriptStore>());
+        _transcriptStore.Load();
+
         var logger = _loggerFactory.CreateLogger<App>();
         logger.LogInformation("MarsinDictation starting");
 
-        // Initialize transcription client from .env config
-        var provider = Environment.GetEnvironmentVariable("MARSIN_TRANSCRIPTION_PROVIDER") ?? "localai";
+        // Initialize transcription client from Settings (with .env fallback)
+        var provider = _settingsManager.Settings.TranscriptionProvider;
+        var envProvider = Environment.GetEnvironmentVariable("MARSIN_TRANSCRIPTION_PROVIDER");
+        if (!string.IsNullOrEmpty(envProvider)) provider = envProvider; // .env overrides
+
         if (provider == "openai")
         {
             var apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
-            var model = Environment.GetEnvironmentVariable("OPENAI_MODEL") ?? "gpt-4o-mini-transcribe";
+            var model = _settingsManager.Settings.OpenAIModel;
             if (!string.IsNullOrEmpty(apiKey))
             {
                 _transcriptionClient = new OpenAITranscriptionClient(
@@ -82,22 +93,75 @@ public partial class App : Application
                 logger.LogWarning("OPENAI_API_KEY not set — transcription disabled");
             }
         }
-        else
+        else if (provider == "localai")
         {
-            var endpoint = Environment.GetEnvironmentVariable("LOCALAI_ENDPOINT") ?? "http://localhost:3850";
-            var model = Environment.GetEnvironmentVariable("LOCALAI_MODEL") ?? "whisper-1";
+            var endpoint = _settingsManager.Settings.LocalAIEndpoint;
+            var model = _settingsManager.Settings.LocalAIModel;
             _transcriptionClient = new OpenAITranscriptionClient(
                 _loggerFactory.CreateLogger<OpenAITranscriptionClient>(),
                 endpoint, null, model);
             logger.LogInformation("Transcription: LocalAI ({Endpoint}, {Model})", endpoint, model);
         }
+        else // "embedded"
+        {
+            var settingsDir = _settingsManager.Settings.WhisperModelDir;
+            var modelName = _settingsManager.Settings.WhisperModel;
+            var language = _settingsManager.Settings.Language;
+            
+            // Look in the installation directory first (bundled via deploy.py)
+            var exeModelPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, modelName);
+            var localModelPath = Path.Combine(settingsDir, modelName);
+            
+            var modelPath = System.IO.File.Exists(exeModelPath) ? exeModelPath : localModelPath;
+            
+            if (!System.IO.File.Exists(modelPath))
+            {
+                logger.LogInformation("Embedded Whisper model missing at {Path}. Showing download UI.", modelPath);
+                
+                var downloadWin = new MarsinDictation.App.UI.ModelDownloadWindow(_settingsManager.Settings.WhisperModel, modelPath);
+                var result = downloadWin.ShowDialog();
+                
+                if (result != true && downloadWin.WasSkipped)
+                {
+                    logger.LogInformation("User skipped model download. Falling back to OpenAI.");
+                    _settingsManager.Settings.TranscriptionProvider = "openai";
+                    _settingsManager.Save();
+                    // Just a warning, will need restart to apply fully, or we load OpenAI if API key exists
+                    var apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
+                    var oaiModel = _settingsManager.Settings.OpenAIModel;
+                    if (!string.IsNullOrEmpty(apiKey))
+                    {
+                        _transcriptionClient = new OpenAITranscriptionClient(
+                            _loggerFactory.CreateLogger<OpenAITranscriptionClient>(),
+                            "https://api.openai.com", apiKey, oaiModel);
+                    }
+                }
+            }
+            
+            if (System.IO.File.Exists(modelPath))
+            {
+                var client = new WhisperTranscriptionClient(modelPath, language);
+                _transcriptionClient = client;
+                logger.LogInformation("Transcription: Embedded Whisper ({ModelPath}) — initializing GPU...", modelPath);
+                
+                // Fire and forget GPU eager load to hide OpenCL CLBlast context initialization
+                Task.Run(() =>
+                {
+                    try
+                    {
+                        var sw = System.Diagnostics.Stopwatch.StartNew();
+                        client.LoadModel();
+                        sw.Stop();
+                        logger.LogInformation("CUDA/OpenCL model successfully warmed up in {Elapsed}ms", sw.ElapsedMilliseconds);
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogError(ex, "Failed to natively load embedded model to GPU");
+                    }
+                });
+            }
+        }
 
-        // Initialize core services
-        _settingsManager = new SettingsManager(_loggerFactory.CreateLogger<SettingsManager>());
-        _settingsManager.Load();
-
-        _transcriptStore = new TranscriptStore(_loggerFactory.CreateLogger<TranscriptStore>());
-        _transcriptStore.Load();
 
         _dictationService = new DictationService(_loggerFactory.CreateLogger<DictationService>());
         _audioRecorder = new AudioRecorder(_loggerFactory.CreateLogger<AudioRecorder>());
@@ -137,7 +201,7 @@ public partial class App : Application
             logger.LogError(ex, "Failed to register hotkeys");
         }
 
-        _mainWindow = new MainWindow();
+        _mainWindow = new MainWindow(_settingsManager);
 
         _trayController = new TrayController(
             onSettingsClicked: () => { _mainWindow.Show(); _mainWindow.Activate(); },
@@ -189,6 +253,19 @@ public partial class App : Application
                     var dsLogger = _loggerFactory!.CreateLogger("WavDownsampler");
                     var optimizedWav = MarsinDictation.Core.Audio.WavDownsampler.Downsample(wavData, dsLogger);
 
+                    var currentProvider = _settingsManager?.Settings.TranscriptionProvider ?? "embedded";
+                    
+                    string currentModel = currentProvider switch
+                    {
+                        "openai" => _settingsManager?.Settings.OpenAIModel ?? "gpt-4o-mini-transcribe",
+                        "localai" => _settingsManager?.Settings.LocalAIModel ?? "whisper-1",
+                        _ => _settingsManager?.Settings.WhisperModel ?? "ggml-large-v3-turbo-q5_0.bin"
+                    };
+
+                    _loggerFactory!.CreateLogger<App>()
+                        .LogInformation("Starting transcription via {Provider} provider using model {Model} on {Bytes}B downsampled audio.", 
+                                        currentProvider, currentModel, optimizedWav.Length);
+
                     var result = await _transcriptionClient.TranscribeAsync(optimizedWav);
 
                     if (result.Success)
@@ -231,10 +308,14 @@ public partial class App : Application
         bool injected = _injector?.TryInjectText(text) ?? false;
 
         var state = injected ? TranscriptState.Success : TranscriptState.Pending;
-        var currentProvider = Environment.GetEnvironmentVariable("MARSIN_TRANSCRIPTION_PROVIDER") ?? "localai";
-        var currentModel = currentProvider == "openai"
-            ? Environment.GetEnvironmentVariable("OPENAI_MODEL") ?? "gpt-4o-mini-transcribe"
-            : Environment.GetEnvironmentVariable("LOCALAI_MODEL") ?? "whisper-large-turbo";
+        var currentProvider = _settingsManager?.Settings.TranscriptionProvider ?? "embedded";
+
+        string currentModel = currentProvider switch
+        {
+            "openai" => _settingsManager?.Settings.OpenAIModel ?? "gpt-4o-mini-transcribe",
+            "localai" => _settingsManager?.Settings.LocalAIModel ?? "whisper-1",
+            _ => _settingsManager?.Settings.WhisperModel ?? "ggml-large-v3-turbo-q5_0.bin"
+        };
         var entry = TranscriptEntry.Create(text, currentProvider, currentModel, state);
         _transcriptStore?.Add(entry);
 
