@@ -1,6 +1,10 @@
 name: MarsinDictation
 options:
   bundleIdPrefix: com.marsinhq
+packages:
+  SwiftWhisper:
+    url: https://github.com/exPHAT/SwiftWhisper
+    branch: master
 targets:
   MarsinDictation:
     type: application
@@ -22,6 +26,8 @@ targets:
       - path: Core
       - path: MarsinDictationApp/AppIcon.icns
         buildPhase: resources
+    dependencies:
+      - package: SwiftWhisper
     info:
       path: Info.plist
       properties:

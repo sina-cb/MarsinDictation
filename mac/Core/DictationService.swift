@@ -6,7 +6,8 @@ public class DictationService: HotkeyDelegate, AudioCaptureDelegate {
     
     private let hotkeyManager = HotkeyManager.shared
     private let audioCapture = AudioCapture()
-    private let client = GenericTranscriptionClient()
+    private let httpClient = GenericTranscriptionClient()
+    private var whisperClient: WhisperTranscriptionClient?
     
     private let pasteboardInjector = PasteboardInjector()
     private let keystrokeInjector = KeystrokeInjector()
@@ -25,6 +26,10 @@ public class DictationService: HotkeyDelegate, AudioCaptureDelegate {
     
     public func start() {
         print("[DictationService] Starting... (debugPlayback=\(debugPlayback))")
+        
+        // Load embedded whisper model if provider is embedded
+        loadWhisperModelIfNeeded()
+        
         // Pre-request mic permission so first hold-to-record works immediately
         audioCapture.requestMicrophonePermission { granted in
             if granted {
@@ -34,6 +39,30 @@ public class DictationService: HotkeyDelegate, AudioCaptureDelegate {
             }
         }
         hotkeyManager.startMonitoring()
+    }
+    
+    /// Load the embedded whisper model if the provider is set to embedded.
+    private func loadWhisperModelIfNeeded() {
+        let sm = SettingsManager.shared
+        guard sm.provider == "embedded" else { return }
+        
+        let modelManager = WhisperModelManager.shared
+        let modelName = sm.whisperModel
+        
+        guard modelManager.isModelAvailable(modelName) else {
+            print("[DictationService] ⚠️ Embedded model '\(modelName)' not found. Download it first.")
+            print("[DictationService] Expected at: \(modelManager.modelURL(for: modelName).path)")
+            return
+        }
+        
+        let client = WhisperTranscriptionClient(modelURL: modelManager.modelURL(for: modelName))
+        do {
+            try client.loadModel()
+            self.whisperClient = client
+            print("[DictationService] ✅ Embedded whisper model loaded")
+        } catch {
+            print("[DictationService] ❌ Failed to load whisper model: \(error)")
+        }
     }
     
     // MARK: - HotkeyDelegate (Hold-to-record)
@@ -123,7 +152,15 @@ public class DictationService: HotkeyDelegate, AudioCaptureDelegate {
                 let config = sm.buildTranscriptionConfig()
                 print("[DictationService] Using \(sm.provider) → \(config.endpoint)")
 
-                let rawText = try await client.transcribe(wavData: wavData, config: config)
+                let rawText: String
+                if sm.provider == "embedded" {
+                    guard let wClient = self.whisperClient else {
+                        throw TranscriptionError.apiError("Embedded whisper model not loaded. Place model file at: \(WhisperModelManager.shared.modelURL(for: sm.whisperModel).path)")
+                    }
+                    rawText = try await wClient.transcribe(wavData: wavData, config: config)
+                } else {
+                    rawText = try await self.httpClient.transcribe(wavData: wavData, config: config)
+                }
                 print("[DictationService] ✅ Transcription: \(rawText)")
                 let cleaned = TextPostProcessor.process(rawText)
                 
