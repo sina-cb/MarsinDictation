@@ -1,0 +1,88 @@
+name: Build and Release CI/CD
+
+on:
+  push:
+    tags:
+      - 'v*' # Trigger strictly on version tags like v1.0.0
+
+jobs:
+  build-windows:
+    name: Build Windows Installer
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Package Windows Installer
+        run: |
+          python devtool/deploy.py windows --package
+
+      - name: Upload Windows Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: tmp/installers/MarsinDictation_Setup_Windows.exe
+          if-no-files-found: error
+
+  build-mac:
+    name: Build macOS DMG
+    runs-on: macos-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          brew install xcodegen
+
+      - name: Package Mac DMG
+        run: |
+          python3 devtool/deploy.py mac --package
+
+      - name: Upload Mac Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-installer
+          path: tmp/MarsinDictation.dmg
+          if-no-files-found: error
+
+  publish:
+    name: Publish Release
+    needs: [build-windows, build-mac]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download Windows Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-installer
+          path: output/
+
+      - name: Download Mac Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: mac-installer
+          path: output/
+
+      - name: Rename Mac DMG for Release
+        run: |
+          mv output/MarsinDictation.dmg output/MarsinDictation_Setup_Mac.dmg
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            output/MarsinDictation_Setup_Windows.exe
+            output/MarsinDictation_Setup_Mac.dmg
+          generate_release_notes: true
+          draft: false
+          prerelease: false

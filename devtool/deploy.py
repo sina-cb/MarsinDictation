@@ -475,14 +475,14 @@ def deploy_windows(args):
     kill_existing(dry_run=d)
     run_step("Check .NET SDK", ["dotnet", "--version"], dry_run=d, verbose=v)
 
-    if args.install:
-        # --install: publish + copy to Program Files + desktop shortcut
+    if args.install or args.package:
+        # --install or --package: publish + release build
         if not do_build("Release", v, d):
             return print_summary(start)
         code = print_summary(start)
         if code != 0:
             return code
-        return do_install(d)
+        return do_install(dry_run=d, package_only=args.package)
 
     elif args.test:
         # --test: build + run tests (optionally filtered)
@@ -525,7 +525,7 @@ def deploy_windows(args):
 INSTALL_DIR = Path(os.environ.get("PROGRAMFILES", r"C:\Program Files")) / "MarsinDictation"
 EXE_NAME = "MarsinDictation.App.exe"
 
-def do_install(dry_run=False):
+def do_install(dry_run=False, package_only=False):
     """Publish self-contained, copy to Program Files (UAC), create desktop shortcut."""
     header("Installing MarsinDictation")
 
@@ -565,6 +565,68 @@ def do_install(dry_run=False):
             import urllib.request
             urllib.request.urlretrieve(f"https://huggingface.co/ggerganov/whisper.cpp/resolve/main/{model_name}", str(model_cache))
             ok("Model downloaded")
+
+    if package_only:
+        import shutil
+        info("Building Redistributable Windows Installer via Inno Setup...")
+        iscc_path = shutil.which("iscc") or shutil.which("iscc.exe")
+        
+        # Check standard Inno Setup installs if lacking in PATH
+        if not iscc_path:
+            alt_path = Path("C:/Program Files (x86)/Inno Setup 6/ISCC.exe")
+            if alt_path.exists():
+                iscc_path = str(alt_path)
+
+        if not iscc_path:
+            fail("Inno Setup Compiler (iscc) not found in PATH. Required for --package.")
+            return 1
+            
+        import tempfile
+        iss_path = ROOT / "tmp" / "MarsinDictation.iss"
+        out_dir = ROOT / "tmp" / "installers"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        
+        iss_text = f"""[Setup]
+AppName=MarsinDictation
+AppVersion=1.0.0
+DefaultDirName={{autopf}}\\MarsinDictation
+DefaultGroupName=MarsinDictation
+OutputBaseFilename=MarsinDictation_Setup_Windows
+Compression=lzma
+SolidCompression=yes
+ArchitecturesAllowed=x64
+ArchitecturesInstallIn64BitMode=x64
+PrivilegesRequired=admin
+OutputDir={str(out_dir)}
+
+[Files]
+Source: "{str(publish_dir)}\\*"; DestDir: "{{app}}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{str(model_cache)}"; DestDir: "{{app}}"; Flags: ignoreversion
+
+[Icons]
+Name: "{{group}}\\MarsinDictation"; Filename: "{{app}}\\{EXE_NAME}"
+Name: "{{autodesktop}}\\MarsinDictation"; Filename: "{{app}}\\{EXE_NAME}"; Tasks: desktopicon
+
+[Tasks]
+Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional icons:"
+"""
+        iss_path.write_text(iss_text, encoding="utf-8")
+        if dry_run:
+            dim(f"  [dry-run] iscc {iss_path}")
+        else:
+            try:
+                subprocess.run([iscc_path, str(iss_path)], check=True, capture_output=True, text=True)
+                ok(f"Created installer: {out_dir / 'MarsinDictation_Setup_Windows.exe'}")
+            except subprocess.CalledProcessError as e:
+                fail(f"Inno Setup Compilation failed — exit code {e.returncode}")
+                if e.stderr:
+                    for line in e.stderr.strip().splitlines()[-5:]:
+                        print(f"  {line}")
+                if e.stdout:
+                    for line in e.stdout.strip().splitlines()[-5:]:
+                        print(f"  {line}")
+                return 1
+        return 0
 
     # 2. Copy to Program Files (requires admin — UAC prompt)
     info(f"Installing to {INSTALL_DIR} (requires admin)...")
@@ -691,8 +753,8 @@ def deploy_mac(args):
 
     xcodeproj = MAC_DIR / "MarsinDictation.xcodeproj"
 
-    if args.install:
-        # --install: build + create DMG installer (always Release, set above)
+    if args.install or args.package:
+        # --install or --package: build + create DMG installer (always Release, set above)
         build_cmd = [
             "xcodebuild",
             "-project", str(xcodeproj),
@@ -770,8 +832,8 @@ def deploy_mac(args):
             ]
             run_step("Create DMG", dmg_cmd, dry_run=d, verbose=v)
 
-            # Also install directly to /Applications
-            if not d:
+            # Also install directly to /Applications if not purely packaging
+            if not d and not args.package:
                 import shutil as sh2
                 apps_dest = Path("/Applications/MarsinDictation.app")
                 if apps_dest.exists():
@@ -791,9 +853,10 @@ def deploy_mac(args):
             print()
             ok("DMG installer created!")
             print(f"  {C.DIM}Location: {dmg_output}{C.RESET}")
-            print(f"  {C.DIM}Open it and drag MarsinDictation to Applications{C.RESET}")
-            info("Opening DMG...")
-            subprocess.Popen(["open", str(dmg_output)])
+            if not args.package:
+                print(f"  {C.DIM}Open it and drag MarsinDictation to Applications{C.RESET}")
+                info("Opening DMG...")
+                subprocess.Popen(["open", str(dmg_output)])
         return code
 
     elif args.build or args.test:
@@ -888,6 +951,8 @@ def main():
     mode.add_argument("--test", action="store_true", help="Build and run all tests")
     mode.add_argument("--install", action="store_true",
                        help="Create installer (Windows: Program Files + shortcut, macOS: DMG)")
+    mode.add_argument("--package", action="store_true",
+                       help="Generate portable redistributable CI installers (Windows EXE, macOS DMG)")
 
     parser.add_argument("--hold", action="store_true",
                        help="Keep terminal open and tail app logs (tmp/logs/app.log)")
