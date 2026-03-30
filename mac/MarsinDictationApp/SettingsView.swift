@@ -43,17 +43,31 @@ struct SettingsView: View {
                     .font(.headline)
                 
                 Picker("", selection: $settings.provider) {
-                    Text("LocalAI (local, free)").tag("localai")
+                    Text("Embedded Whisper (local, free)").tag("embedded")
+                    Text("LocalAI (local server)").tag("localai")
                     Text("OpenAI (cloud)").tag("openai")
                 }
-                .pickerStyle(.segmented)
                 .labelsHidden()
             }
             .padding(.bottom, 16)
             
             Divider().padding(.bottom, 12)
             
-            if settings.provider == "localai" {
+            if settings.provider == "embedded" {
+                // Embedded Whisper Settings
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Embedded Whisper")
+                        .font(.headline)
+                    
+                    LabeledField(label: "Model file", text: $settings.whisperModel,
+                                placeholder: "ggml-large-v3-turbo-q5_0.bin")
+                    
+                    Text("Model is stored in ~/Library/Application Support/MarsinDictation/models/")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .padding(.bottom, 16)
+            } else if settings.provider == "localai" {
                 // LocalAI Settings
                 VStack(alignment: .leading, spacing: 10) {
                     Text("LocalAI")
@@ -157,6 +171,7 @@ struct SettingsView: View {
         .onChange(of: settings.localAIModel) { _ in flashSaved() }
         .onChange(of: settings.openAIModel) { _ in flashSaved() }
         .onChange(of: settings.openAIAPIKey) { _ in flashSaved() }
+        .onChange(of: settings.whisperModel) { _ in flashSaved() }
         .onChange(of: settings.silenceAudioDuringDictation) { _ in flashSaved() }
         .onChange(of: settings.duckLevel) { _ in flashSaved() }
     }

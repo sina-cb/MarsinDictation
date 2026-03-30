@@ -26,6 +26,9 @@ public class SettingsManager: ObservableObject {
     @Published public var openAIAPIKey: String {
         didSet { KeychainHelper.save(key: Keys.openAIAPIKey, value: openAIAPIKey) }
     }
+    @Published public var whisperModel: String {
+        didSet { UserDefaults.standard.set(whisperModel, forKey: Keys.whisperModel) }
+    }
     @Published public var silenceAudioDuringDictation: Bool {
         didSet { UserDefaults.standard.set(silenceAudioDuringDictation, forKey: Keys.silenceAudio) }
     }
@@ -42,6 +45,7 @@ public class SettingsManager: ObservableObject {
         static let localAIModel = "localAIModel"
         static let openAIModel = "openAIModel"
         static let openAIAPIKey = "openai-api-key"
+        static let whisperModel = "whisperModel"
         static let silenceAudio = "silenceAudioDuringDictation"
         static let duckLevel = "duckLevel"
         static let hasSeededFromEnv = "hasSeededFromEnv"
@@ -50,11 +54,12 @@ public class SettingsManager: ObservableObject {
     // MARK: - Defaults
     
     private enum Defaults {
-        static let provider = "localai"
+        static let provider = "embedded"
         static let language = "en"
         static let localAIEndpoint = "http://localhost:3840"
         static let localAIModel = "whisper-large-turbo"
         static let openAIModel = "gpt-4o-mini-transcribe"
+        static let whisperModel = "ggml-base.en.bin"
     }
     
     // MARK: - Init
@@ -88,6 +93,10 @@ public class SettingsManager: ObservableObject {
             ?? ProcessInfo.processInfo.environment["OPENAI_API_KEY"]
             ?? ""
         
+        self.whisperModel = ud.string(forKey: Keys.whisperModel)
+            ?? ProcessInfo.processInfo.environment["MARSIN_WHISPER_MODEL"]
+            ?? Defaults.whisperModel
+        
         // Silence audio during dictation (default: ON)
         if ud.object(forKey: Keys.silenceAudio) != nil {
             self.silenceAudioDuringDictation = ud.bool(forKey: Keys.silenceAudio)
@@ -117,6 +126,7 @@ public class SettingsManager: ObservableObject {
         if let v = env["LOCALAI_MODEL"] { localAIModel = v }
         if let v = env["OPENAI_MODEL"] { openAIModel = v }
         if let v = env["OPENAI_API_KEY"], !v.isEmpty { openAIAPIKey = v }
+        if let v = env["MARSIN_WHISPER_MODEL"] { whisperModel = v }
         
         ud.set(true, forKey: Keys.hasSeededFromEnv)
         print("[SettingsManager] Seeded settings from .env")
@@ -125,14 +135,24 @@ public class SettingsManager: ObservableObject {
     // MARK: - Config Builder
     
     public func buildTranscriptionConfig() -> TranscriptionConfig {
-        if provider == "openai" {
+        switch provider {
+        case "openai":
             return TranscriptionConfig(
                 endpoint: "https://api.openai.com/v1/audio/transcriptions",
                 apiKey: openAIAPIKey.isEmpty ? nil : openAIAPIKey,
                 model: openAIModel,
                 language: language
             )
-        } else {
+        case "embedded":
+            // Embedded whisper.cpp — config used by WhisperTranscriptionClient
+            // Endpoint is unused for in-process inference; model is the GGML filename
+            return TranscriptionConfig(
+                endpoint: "embedded",
+                apiKey: nil,
+                model: whisperModel,
+                language: language
+            )
+        default: // "localai" and any other value
             return TranscriptionConfig(
                 endpoint: "\(localAIEndpoint)/v1/audio/transcriptions",
                 apiKey: nil,
