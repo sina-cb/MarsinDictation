@@ -848,6 +848,19 @@ def deploy_mac(args):
                     size_mb = model_file.stat().st_size // (1024 * 1024)
                     ok(f"Bundled model: {model_file.name} ({size_mb} MB)")
 
+            # Re-sign the app after adding files (bundling invalidates the signature)
+            if apple_team_id and not d:
+                entitlements_path = MAC_DIR / "MarsinDictation.entitlements"
+                resign_cmd = [
+                    "codesign", "--force", "--deep", "--sign", "Developer ID Application",
+                    "--options", "runtime",
+                    "--timestamp",
+                ]
+                if entitlements_path.exists():
+                    resign_cmd.extend(["--entitlements", str(entitlements_path)])
+                resign_cmd.append(str(dst_app))
+                run_step("Re-sign app bundle", resign_cmd, dry_run=d, verbose=v)
+
             # Create /Applications symlink
             if not d:
                 os.symlink("/Applications", str(staging / "Applications"))
