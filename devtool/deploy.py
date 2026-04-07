@@ -754,6 +754,37 @@ def deploy_mac(args):
     d = args.dry_run
     config = "Release"  # Always use Release for macOS (avoids duplicate Spotlight entries)
 
+    # --clean: uninstall app and remove all data
+    if getattr(args, 'clean', False):
+        import shutil as sh_clean
+        info("Cleaning MarsinDictation...")
+        subprocess.run(["killall", "MarsinDictation"], capture_output=True)
+        targets = [
+            Path("/Applications/MarsinDictation.app"),
+            Path.home() / "Library" / "Application Support" / "MarsinDictation",
+            Path.home() / "Library" / "Caches" / "com.marsinhq.MarsinDictation",
+            Path.home() / "Library" / "Preferences" / "com.marsinhq.MarsinDictation.plist",
+        ]
+        for t in targets:
+            if t.exists():
+                if t.is_dir():
+                    sh_clean.rmtree(str(t))
+                else:
+                    t.unlink()
+                ok(f"Removed {t}")
+        # Clean DerivedData
+        dd = Path.home() / "Library" / "Developer" / "Xcode" / "DerivedData"
+        if dd.exists():
+            for p in dd.iterdir():
+                if p.name.startswith("MarsinDictation-"):
+                    sh_clean.rmtree(str(p))
+                    ok(f"Removed DerivedData: {p.name}")
+        # Reset preferences
+        subprocess.run(["defaults", "delete", "com.marsinhq.MarsinDictation"], capture_output=True)
+        ok("Reset preferences")
+        ok("Clean complete")
+        return print_summary(start)
+
     # Step 1: Check prerequisites
     run_step("Check Xcode CLI tools", ["xcodebuild", "-version"], dry_run=d, verbose=v)
 
@@ -1097,6 +1128,8 @@ def main():
     parser.add_argument("--dry-run", action="store_true", help="Show steps without executing")
     parser.add_argument("--local-sign", action="store_true",
                        help="macOS: use ad-hoc signing (no Apple Developer certificate needed)")
+    parser.add_argument("--clean", action="store_true",
+                       help="macOS: uninstall app and remove all data (models, prefs, caches)")
 
     args = parser.parse_args()
 
