@@ -769,10 +769,22 @@ def deploy_mac(args):
             "-project", str(xcodeproj),
             "-scheme", "MarsinDictation",
             "-configuration", config,
-            "CODE_SIGN_IDENTITY=-",
-            "CODE_SIGNING_ALLOWED=YES",
             "build"
         ]
+
+        apple_team_id = os.environ.get("APPLE_TEAM_ID")
+        if apple_team_id:
+            info(f"Team ID {apple_team_id} detected, enabling Developer ID code signing...")
+            build_cmd.extend([
+                f"DEVELOPMENT_TEAM={apple_team_id}",
+                "CODE_SIGN_STYLE=Manual",
+                "CODE_SIGN_IDENTITY=Developer ID Application"
+            ])
+        else:
+            build_cmd.extend([
+                "CODE_SIGN_IDENTITY=-",
+                "CODE_SIGNING_ALLOWED=YES",
+            ])
         build_ok = run_step(f"Build ({config})", build_cmd, cwd=MAC_DIR, dry_run=d, verbose=v)
         if not build_ok:
             return print_summary(start)
@@ -840,6 +852,26 @@ def deploy_mac(args):
                 "-format", "UDZO"  # compressed DMG
             ]
             run_step("Create DMG", dmg_cmd, dry_run=d, verbose=v)
+
+            # Notarization
+            apple_email = os.environ.get("APPLE_ID_EMAIL")
+            apple_app_password = os.environ.get("APPLE_APP_SPECIFIC_PASSWORD")
+            if apple_email and apple_app_password and apple_team_id and not d:
+                notary_cmd = [
+                    "xcrun", "notarytool", "submit",
+                    str(dmg_output),
+                    "--apple-id", apple_email,
+                    "--password", apple_app_password,
+                    "--team-id", apple_team_id,
+                    "--wait"
+                ]
+                # Force verbose=True for notarization so we see the progress and UUID
+                run_step("Notarize DMG (this takes a few minutes)", notary_cmd, dry_run=d, verbose=True)
+                
+                staple_cmd = [
+                    "xcrun", "stapler", "staple", str(dmg_output)
+                ]
+                run_step("Staple Notarization Ticket", staple_cmd, dry_run=d, verbose=v)
 
             # Also install directly to /Applications if not purely packaging
             if not d and not args.package:
