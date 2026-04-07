@@ -828,6 +828,14 @@ def deploy_mac(args):
             fail("Could not find built MarsinDictation.app in DerivedData")
             return print_summary(start)
 
+        # Unregister DerivedData app from Launch Services (prevents duplicate in Spotlight)
+        if not d:
+            subprocess.run([
+                "/System/Library/Frameworks/CoreServices.framework/Versions/Current/"
+                "Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister",
+                "-u", str(app_dir)
+            ], capture_output=True)
+
         # Create staging directory for DMG contents
         import shutil
         import tempfile
