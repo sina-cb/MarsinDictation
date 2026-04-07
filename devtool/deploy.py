@@ -785,7 +785,9 @@ def deploy_mac(args):
                 f"DEVELOPMENT_TEAM={apple_team_id}",
                 "CODE_SIGN_STYLE=Manual",
                 "CODE_SIGN_IDENTITY=Developer ID Application",
-                "ENABLE_HARDENED_RUNTIME=YES"
+                "ENABLE_HARDENED_RUNTIME=YES",
+                "OTHER_CODE_SIGN_FLAGS=--timestamp",
+                "CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO"
             ])
         else:
             # No --local-sign and no APPLE_TEAM_ID: let Local.xcconfig handle signing
