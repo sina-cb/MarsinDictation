@@ -57,17 +57,31 @@ jobs:
           CERTIFICATE_PATH=$RUNNER_TEMP/build_certificate.p12
           KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
 
-          echo -n "$BUILD_CERTIFICATE_BASE64" | base64 --decode -o $CERTIFICATE_PATH
+          # Decode certificate
+          echo -n "$BUILD_CERTIFICATE_BASE64" | base64 --decode > $CERTIFICATE_PATH
+          echo "Certificate file size: $(wc -c < $CERTIFICATE_PATH) bytes"
 
+          # Create and configure keychain
           security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
           security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
 
+          # Import certificate
           security import $CERTIFICATE_PATH -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
-          security list-keychain -d user -s $KEYCHAIN_PATH login.keychain-db
 
+          # Allow codesign to access the key without UI prompt
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+
+          # Add to keychain search list (preserve existing keychains)
+          security list-keychain -d user -s $KEYCHAIN_PATH $(security list-keychain -d user | sed -e s/\"//g)
+
+          # Debug: show what was imported
+          echo "=== Keychain search list ==="
+          security list-keychain -d user
+          echo "=== Signing identities in app-signing keychain ==="
           security find-identity -v -p codesigning $KEYCHAIN_PATH
+          echo "=== All signing identities ==="
+          security find-identity -v -p codesigning
 
       - name: Package Mac DMG
         env:
@@ -75,7 +89,7 @@ jobs:
           APPLE_ID_EMAIL: ${{ secrets.APPLE_ID_EMAIL }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
         run: |
-          python3 devtool/deploy.py mac --package
+          python3 devtool/deploy.py mac --package --verbose
 
       - name: Upload Mac Artifact
         uses: actions/upload-artifact@v4
