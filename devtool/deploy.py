@@ -907,8 +907,6 @@ def deploy_mac(args):
             "-project", str(xcodeproj),
             "-scheme", "MarsinDictation",
             "-configuration", config,
-            "CODE_SIGN_IDENTITY=-",
-            "CODE_SIGNING_ALLOWED=YES",
             "build"
         ]
         run_step(f"Build ({config})", build_cmd, cwd=MAC_DIR, dry_run=d, verbose=v)
@@ -931,8 +929,6 @@ def deploy_mac(args):
             "-project", str(xcodeproj),
             "-scheme", "MarsinDictation",
             "-configuration", config,
-            "CODE_SIGN_IDENTITY=-",
-            "CODE_SIGNING_ALLOWED=YES",
             "build"
         ]
         run_step(f"Build ({config})", build_cmd, cwd=MAC_DIR, dry_run=d, verbose=v)
