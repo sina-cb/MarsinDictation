@@ -828,13 +828,8 @@ def deploy_mac(args):
             fail("Could not find built MarsinDictation.app in DerivedData")
             return print_summary(start)
 
-        # Unregister DerivedData app from Launch Services (prevents duplicate in Spotlight)
-        if not d:
-            subprocess.run([
-                "/System/Library/Frameworks/CoreServices.framework/Versions/Current/"
-                "Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister",
-                "-u", str(app_dir)
-            ], capture_output=True)
+        # We'll clean up DerivedData after copying .app to staging (see below)
+        derived_data_dir = app_dir.parent.parent.parent.parent  # MarsinDictation-xxx/
 
         # Create staging directory for DMG contents
         import shutil
@@ -854,6 +849,9 @@ def deploy_mac(args):
                 info("Copying app bundle to staging...")
                 shutil.copytree(str(app_dir), str(dst_app))
                 ok(f"App bundle staged")
+
+                # Delete DerivedData to prevent duplicate in Spotlight/Launchpad
+                shutil.rmtree(str(derived_data_dir), ignore_errors=True)
 
             # Bundle .env into app Resources (so installed app finds API keys)
             env_src = ROOT / ".env"
