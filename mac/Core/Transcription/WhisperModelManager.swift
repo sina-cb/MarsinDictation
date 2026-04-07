@@ -17,14 +17,24 @@ public class WhisperModelManager {
     
     private init() {}
     
-    /// Full path to the model file
+    /// Full path to the model file — checks bundle Resources first, then Application Support
     public func modelURL(for modelName: String) -> URL {
+        // Check if model is bundled in app Resources
+        if let bundledURL = Bundle.main.url(forResource: (modelName as NSString).deletingPathExtension,
+                                            withExtension: (modelName as NSString).pathExtension) {
+            return bundledURL
+        }
         return modelsDirectory.appendingPathComponent(modelName)
     }
     
-    /// Check if a model file exists locally
+    /// Check if a model file exists (in bundle or Application Support)
     public func isModelAvailable(_ modelName: String) -> Bool {
-        return FileManager.default.fileExists(atPath: modelURL(for: modelName).path)
+        // Check bundle first
+        if Bundle.main.url(forResource: (modelName as NSString).deletingPathExtension,
+                           withExtension: (modelName as NSString).pathExtension) != nil {
+            return true
+        }
+        return FileManager.default.fileExists(atPath: modelsDirectory.appendingPathComponent(modelName).path)
     }
     
     /// Download a model file from Hugging Face with progress reporting.

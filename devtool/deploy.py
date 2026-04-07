@@ -838,6 +838,16 @@ def deploy_mac(args):
             elif not env_src.exists():
                 warn("No .env file found — installed app will need configuration")
 
+            # Bundle Whisper model into app Resources (so DMG ships with model)
+            model_cache = ROOT / "tmp" / "models"
+            if model_cache.exists() and not d:
+                resources_dir = dst_app / "Contents" / "Resources"
+                for model_file in model_cache.glob("*.bin"):
+                    model_dst = resources_dir / model_file.name
+                    shutil.copy2(str(model_file), str(model_dst))
+                    size_mb = model_file.stat().st_size // (1024 * 1024)
+                    ok(f"Bundled model: {model_file.name} ({size_mb} MB)")
+
             # Create /Applications symlink
             if not d:
                 os.symlink("/Applications", str(staging / "Applications"))

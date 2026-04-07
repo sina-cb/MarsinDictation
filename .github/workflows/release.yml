@@ -83,6 +83,17 @@ jobs:
           echo "=== All signing identities ==="
           security find-identity -v -p codesigning
 
+      - name: Download Whisper Model
+        run: |
+          MODEL_NAME="ggml-base.en.bin"
+          MODEL_DIR="tmp/models"
+          mkdir -p "$MODEL_DIR"
+          if [ ! -f "$MODEL_DIR/$MODEL_NAME" ]; then
+            echo "Downloading $MODEL_NAME..."
+            curl -L -o "$MODEL_DIR/$MODEL_NAME" "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/$MODEL_NAME"
+            echo "Downloaded: $(wc -c < "$MODEL_DIR/$MODEL_NAME") bytes"
+          fi
+
       - name: Package Mac DMG
         env:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
