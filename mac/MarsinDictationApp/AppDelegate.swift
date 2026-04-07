@@ -9,11 +9,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         EnvLoader.load()
         
-        // Check Accessibility silently (needed for auto-paste via CGEvent)
-        if AXIsProcessTrusted() {
-            print("[AppDelegate] ✅ Accessibility granted — auto-paste will work")
-        } else {
+        // Check Accessibility (needed for auto-paste via CGEvent)
+        if !AXIsProcessTrusted() {
+            let hasPrompted = UserDefaults.standard.bool(forKey: "hasPromptedAccessibility")
+            if !hasPrompted {
+                // First launch: show system prompt
+                let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
+                AXIsProcessTrustedWithOptions(options)
+                UserDefaults.standard.set(true, forKey: "hasPromptedAccessibility")
+            }
             print("[AppDelegate] ⚠️ Accessibility not granted — text copies to clipboard (⌘V to paste)")
+        } else {
+            print("[AppDelegate] ✅ Accessibility granted — auto-paste will work")
         }
         
         statusBarController = StatusBarController()
