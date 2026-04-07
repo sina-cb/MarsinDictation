@@ -780,30 +780,12 @@ def deploy_mac(args):
                 "CODE_SIGNING_ALLOWED=YES",
             ])
         elif apple_team_id:
-            # Check if Developer ID Application cert is actually available
-            has_dev_id = False
-            try:
-                result = subprocess.run(
-                    ["security", "find-identity", "-v", "-p", "codesigning"],
-                    capture_output=True, text=True
-                )
-                has_dev_id = "Developer ID Application" in result.stdout
-            except Exception:
-                pass
-
-            if has_dev_id:
-                info(f"Team ID {apple_team_id} detected, enabling Developer ID code signing...")
-                build_cmd.extend([
-                    f"DEVELOPMENT_TEAM={apple_team_id}",
-                    "CODE_SIGN_STYLE=Manual",
-                    "CODE_SIGN_IDENTITY=Developer ID Application"
-                ])
-            else:
-                warn("APPLE_TEAM_ID set but no 'Developer ID Application' certificate found — using ad-hoc signing")
-                build_cmd.extend([
-                    "CODE_SIGN_IDENTITY=-",
-                    "CODE_SIGNING_ALLOWED=YES",
-                ])
+            info(f"Team ID {apple_team_id} detected, enabling Developer ID code signing...")
+            build_cmd.extend([
+                f"DEVELOPMENT_TEAM={apple_team_id}",
+                "CODE_SIGN_STYLE=Manual",
+                "CODE_SIGN_IDENTITY=Developer ID Application"
+            ])
         else:
             # No --local-sign and no APPLE_TEAM_ID: let Local.xcconfig handle signing
             info("Using signing config from Local.xcconfig (set --local-sign to skip)")
