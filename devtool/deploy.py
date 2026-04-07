@@ -784,7 +784,8 @@ def deploy_mac(args):
             build_cmd.extend([
                 f"DEVELOPMENT_TEAM={apple_team_id}",
                 "CODE_SIGN_STYLE=Manual",
-                "CODE_SIGN_IDENTITY=Developer ID Application"
+                "CODE_SIGN_IDENTITY=Developer ID Application",
+                "ENABLE_HARDENED_RUNTIME=YES"
             ])
         else:
             # No --local-sign and no APPLE_TEAM_ID: let Local.xcconfig handle signing
@@ -861,17 +862,59 @@ def deploy_mac(args):
             apple_email = os.environ.get("APPLE_ID_EMAIL")
             apple_app_password = os.environ.get("APPLE_APP_SPECIFIC_PASSWORD")
             if apple_email and apple_app_password and apple_team_id and not d:
+                info("Submitting DMG for notarization...")
                 notary_cmd = [
                     "xcrun", "notarytool", "submit",
                     str(dmg_output),
                     "--apple-id", apple_email,
                     "--password", apple_app_password,
                     "--team-id", apple_team_id,
-                    "--wait"
+                    "--wait", "--output-format", "json"
                 ]
-                # Force verbose=True for notarization so we see the progress and UUID
-                run_step("Notarize DMG (this takes a few minutes)", notary_cmd, dry_run=d, verbose=True)
-                
+                try:
+                    import json as _json
+                    notary_result = subprocess.run(notary_cmd, capture_output=True, text=True)
+                    print(notary_result.stdout)
+                    if notary_result.stderr:
+                        print(notary_result.stderr)
+
+                    # Parse submission ID and status
+                    try:
+                        notary_json = _json.loads(notary_result.stdout)
+                        submission_id = notary_json.get("id", "")
+                        status = notary_json.get("status", "")
+                    except Exception:
+                        submission_id = ""
+                        status = ""
+
+                    if status == "Accepted":
+                        ok("Notarization accepted")
+                        results.append(("Notarize DMG", "ok"))
+                    else:
+                        fail(f"Notarization status: {status}")
+                        results.append(("Notarize DMG", "FAIL"))
+                        # Fetch the notarization log to see WHY it failed
+                        if submission_id:
+                            info(f"Fetching notarization log for submission {submission_id}...")
+                            log_cmd = [
+                                "xcrun", "notarytool", "log",
+                                submission_id,
+                                "--apple-id", apple_email,
+                                "--password", apple_app_password,
+                                "--team-id", apple_team_id,
+                            ]
+                            log_result = subprocess.run(log_cmd, capture_output=True, text=True)
+                            print("\n=== NOTARIZATION LOG ===")
+                            print(log_result.stdout)
+                            if log_result.stderr:
+                                print(log_result.stderr)
+                            print("=== END LOG ===")
+                        return print_summary(start)
+                except Exception as e:
+                    fail(f"Notarization error: {e}")
+                    results.append(("Notarize DMG", "FAIL"))
+                    return print_summary(start)
+
                 staple_cmd = [
                     "xcrun", "stapler", "staple", str(dmg_output)
                 ]
