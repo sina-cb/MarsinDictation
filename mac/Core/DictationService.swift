@@ -41,7 +41,6 @@ public class DictationService: HotkeyDelegate, AudioCaptureDelegate {
         hotkeyManager.startMonitoring()
     }
     
-    /// Load the embedded whisper model if the provider is set to embedded.
     private func loadWhisperModelIfNeeded() {
         let sm = SettingsManager.shared
         guard sm.provider == "embedded" else { return }
@@ -49,19 +48,31 @@ public class DictationService: HotkeyDelegate, AudioCaptureDelegate {
         let modelManager = WhisperModelManager.shared
         let modelName = sm.whisperModel
         
-        guard modelManager.isModelAvailable(modelName) else {
-            print("[DictationService] ⚠️ Embedded model '\(modelName)' not found. Download it first.")
-            print("[DictationService] Expected at: \(modelManager.modelURL(for: modelName).path)")
-            return
-        }
-        
-        let client = WhisperTranscriptionClient(modelURL: modelManager.modelURL(for: modelName))
-        do {
-            try client.loadModel()
-            self.whisperClient = client
-            print("[DictationService] ✅ Embedded whisper model loaded")
-        } catch {
-            print("[DictationService] ❌ Failed to load whisper model: \(error)")
+        Task {
+            do {
+                if !modelManager.isModelAvailable(modelName) {
+                    print("[DictationService] ⚠️ Embedded model '\(modelName)' not found. Starting download...")
+                    await MainActor.run {
+                        RecordingHUDController.shared.showToast(text: "Downloading AI Model...", type: .success, duration: 4.0)
+                    }
+                    _ = try await modelManager.downloadModel(modelName) { downloaded, total in
+                        // progress reporting can be ignored or logged
+                    }
+                    await MainActor.run {
+                        RecordingHUDController.shared.showToast(text: "Model Downloaded", type: .success, duration: 2.0)
+                    }
+                }
+                
+                let client = WhisperTranscriptionClient(modelURL: modelManager.modelURL(for: modelName))
+                try client.loadModel()
+                self.whisperClient = client
+                print("[DictationService] ✅ Embedded whisper model loaded")
+            } catch {
+                print("[DictationService] ❌ Failed to load or download whisper model: \(error)")
+                await MainActor.run {
+                    RecordingHUDController.shared.showToast(text: "Model Download Failed", type: .error, duration: 3.0)
+                }
+            }
         }
     }
     
