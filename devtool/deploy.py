@@ -773,7 +773,13 @@ def deploy_mac(args):
         ]
 
         apple_team_id = os.environ.get("APPLE_TEAM_ID")
-        if apple_team_id:
+        if getattr(args, 'local_sign', False):
+            info("Using ad-hoc signing (--local-sign)")
+            build_cmd.extend([
+                "CODE_SIGN_IDENTITY=-",
+                "CODE_SIGNING_ALLOWED=YES",
+            ])
+        elif apple_team_id:
             info(f"Team ID {apple_team_id} detected, enabling Developer ID code signing...")
             build_cmd.extend([
                 f"DEVELOPMENT_TEAM={apple_team_id}",
@@ -781,10 +787,8 @@ def deploy_mac(args):
                 "CODE_SIGN_IDENTITY=Developer ID Application"
             ])
         else:
-            build_cmd.extend([
-                "CODE_SIGN_IDENTITY=-",
-                "CODE_SIGNING_ALLOWED=YES",
-            ])
+            # No --local-sign and no APPLE_TEAM_ID: let Local.xcconfig handle signing
+            info("Using signing config from Local.xcconfig (set --local-sign to skip)")
         build_ok = run_step(f"Build ({config})", build_cmd, cwd=MAC_DIR, dry_run=d, verbose=v)
         if not build_ok:
             return print_summary(start)
@@ -999,6 +1003,8 @@ def main():
     parser.add_argument("--release", action="store_true", help="Release build (default: Debug)")
     parser.add_argument("--verbose", action="store_true", help="Show full build output")
     parser.add_argument("--dry-run", action="store_true", help="Show steps without executing")
+    parser.add_argument("--local-sign", action="store_true",
+                       help="macOS: use ad-hoc signing (no Apple Developer certificate needed)")
 
     args = parser.parse_args()
 
