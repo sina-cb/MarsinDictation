@@ -97,4 +97,4 @@ Estimated cost = sum(`audio_seconds`) / 60 × rate_per_minute
 
 - CLI command: `python devtool/deploy.py --metrics` to print summary
 - Export to CSV for spreadsheet analysis
-- Daily/weekly digest notification via ZeroG
+- Daily/weekly digest notification

@@ -390,9 +390,9 @@ For the typing fallback, use Unicode-aware input (`KEYEVENTF_UNICODE` flag with 
 
 Not every provider/model supports the same response format. v0 normalizes all transcription responses to **plain text output** only. Do not rely on structured metadata or word-level timestamps from either provider.
 
-### Prior Internal Reference
+### Provider API Reference
 
-The existing MarsinHome mobile app uses this exact API shape as a working reference. Its GOL server `transcribe.js` route converts base64 audio → `multipart/form-data` → `POST /v1/audio/transcriptions` with `Bearer` auth. The Windows app calls the endpoint directly (no proxy needed).
+The standard OpenAI-compatible `/v1/audio/transcriptions` endpoint accepts `multipart/form-data` with a `file` field (WAV audio) and optional `model`/`language` fields. `Bearer` auth is used for OpenAI; LocalAI typically requires no auth. The Windows app calls the endpoint directly (no proxy needed).
 
 ---
 
