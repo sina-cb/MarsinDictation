@@ -1,5 +1,6 @@
 import Foundation
 import SwiftWhisper
+import Metal
 
 /// In-process transcription using whisper.cpp via SwiftWhisper.
 /// Loads a GGML model file and runs inference directly in the app process.
@@ -23,8 +24,28 @@ public final class WhisperTranscriptionClient: ITranscriptionClient {
         let params = WhisperParams(strategy: .greedy)
         params.language = .english  // Default to English — avoids auto-detect crash
         
+        // Detect if Metal GPU is available; fall back to CPU on Intel/older Macs
+        let hasMetalGPU = WhisperTranscriptionClient.detectMetalGPU()
+        if !hasMetalGPU {
+            params.no_gpu = true
+            print("[WhisperClient] ⚠️ No Metal GPU detected — using CPU-only inference")
+        }
+        
         whisper = Whisper(fromFileURL: modelURL, withParams: params)
-        print("[WhisperClient] ✅ Model loaded from \(modelURL.lastPathComponent)")
+        print("[WhisperClient] ✅ Model loaded from \(modelURL.lastPathComponent) (GPU: \(hasMetalGPU))")
+    }
+    
+    /// Check if a Metal-capable GPU is available on this Mac.
+    private static func detectMetalGPU() -> Bool {
+        #if arch(arm64)
+        // Apple Silicon always has Metal
+        return true
+        #else
+        // Intel Mac — check for Metal device
+        guard let device = MTLCreateSystemDefaultDevice() else { return false }
+        // Require at least macOS GPU Family 1 v4 for decent performance
+        return device.supportsFamily(.common1)
+        #endif
     }
     
     public func transcribe(wavData: Data, config: TranscriptionConfig) async throws -> String {
