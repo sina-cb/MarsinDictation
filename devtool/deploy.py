@@ -818,7 +818,9 @@ def deploy_mac(args):
             "-project", str(xcodeproj),
             "-scheme", "MarsinDictation",
             "-configuration", config,
-            "build"
+            "build",
+            "ARCHS=x86_64 arm64",        # Universal binary (Intel + Apple Silicon)
+            "ONLY_ACTIVE_ARCH=NO",        # Build both architectures
         ]
 
         apple_team_id = os.environ.get("APPLE_TEAM_ID")
