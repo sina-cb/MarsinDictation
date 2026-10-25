@@ -213,6 +213,66 @@ public sealed class LocalTranscriptionApiTests : EvidenceTest
     }
 
     [Fact]
+    public async Task StalledUpload_ExpiresAndReleasesAdmission()
+    {
+        Setup("Raw TCP client declares a valid WAV body but sends only its first byte");
+        Intent("A stalled HTTP.sys body read cannot monopolize the API beyond the upload deadline");
+        Expect("408 within 15 seconds, then a complete upload succeeds");
+        var (api, client) = Start(); using var server = api; using var http = client;
+        using var tcp = new TcpClient();
+        await tcp.ConnectAsync(IPAddress.Loopback, http.BaseAddress!.Port);
+        var stream = tcp.GetStream();
+        await stream.WriteAsync(Encoding.ASCII.GetBytes($"POST /transcribe HTTP/1.1\r\nHost: 127.0.0.1:{http.BaseAddress.Port}\r\nContent-Type: audio/wav\r\nContent-Length: 46\r\n\r\nR"));
+        using var reader = new StreamReader(stream, leaveOpen: true);
+        var status = await reader.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(15));
+        Assert.Contains("408", status);
+        using var request = Upload();
+        AssertEvidence("next complete upload HTTP status", HttpStatusCode.OK, (await http.SendAsync(request)).StatusCode);
+        Pass("stalled read timed out and admission recovered without waiting for client disconnect");
+    }
+
+    [Fact]
+    public async Task ShutdownDuringUpload_IsBoundedAndRepeatable()
+    {
+        Setup("A raw upload stalls after one body byte while health remains available");
+        Intent("Synchronous app shutdown must cancel a pending HTTP.sys read");
+        Expect("Dispose completes within five seconds and a second Dispose is harmless");
+        var (api, client) = Start(); using var server = api; using var http = client;
+        using var tcp = new TcpClient();
+        await tcp.ConnectAsync(IPAddress.Loopback, http.BaseAddress!.Port);
+        await tcp.GetStream().WriteAsync(Encoding.ASCII.GetBytes($"POST /transcribe HTTP/1.1\r\nHost: 127.0.0.1:{http.BaseAddress.Port}\r\nContent-Type: audio/wav\r\nContent-Length: 46\r\n\r\nR"));
+        // A health response proves the accept loop has processed the preceding upload.
+        Assert.Equal(HttpStatusCode.OK, (await http.GetAsync("health")).StatusCode);
+        await Task.Run(api.Dispose).WaitAsync(TimeSpan.FromSeconds(5));
+        api.Dispose();
+        Pass("pending body read did not block shutdown and repeated disposal was safe");
+    }
+
+    [Fact]
+    public async Task ShutdownDuringInference_CancelsCallbackAndDrains()
+    {
+        Setup("An admitted fake inference waits indefinitely on its supplied cancellation token");
+        Intent("Shutdown cancels active inference and waits for the callback to finish");
+        Expect("Callback observes cancellation and Dispose completes within five seconds");
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        bool cancelled = false;
+        var (api, client) = Start(async (_, ct) =>
+        {
+            started.SetResult();
+            try { await Task.Delay(Timeout.Infinite, ct); }
+            catch (OperationCanceledException) { cancelled = true; throw; }
+            return new(true, "unreachable", null);
+        });
+        using var server = api; using var http = client; using var request = Upload();
+        var response = http.SendAsync(request);
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await Task.Run(api.Dispose).WaitAsync(TimeSpan.FromSeconds(5));
+        try { using var result = await response; } catch (HttpRequestException) { }
+        AssertEvidence("callback observed cancellation", true, cancelled);
+        Pass("shutdown cancelled and drained inference without blocking the caller");
+    }
+
+    [Fact]
     [Trait("Category", "LocalEmbedded")]
     public async Task InstalledEmbeddedModel_TranscribesKnownAudio_ThroughRealApi()
     {
@@ -228,6 +288,11 @@ public sealed class LocalTranscriptionApiTests : EvidenceTest
         using var whisper = new WhisperTranscriptionClient(model, "en");
         var watch = System.Diagnostics.Stopwatch.StartNew();
         whisper.LoadModel();
+        using (var cancelled = new CancellationTokenSource())
+        {
+            cancelled.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => whisper.TryTranscribeAsync(Wav(), cancelled.Token));
+        }
         Got("Model load milliseconds", watch.ElapsedMilliseconds);
         var wav = WavDownsampler.Downsample(await File.ReadAllBytesAsync(sample));
         Assert.True(LocalTranscriptionApi.IsNormalizedWav(wav));
@@ -244,6 +309,12 @@ public sealed class LocalTranscriptionApiTests : EvidenceTest
         var text = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement.GetProperty("text").GetString()!;
         AssertEvidence("contains hello", true, text.Contains("hello", StringComparison.OrdinalIgnoreCase));
         AssertEvidence("contains world", true, text.Contains("world", StringComparison.OrdinalIgnoreCase));
+        // Cancel after native processing has had time to start, not just at gate admission.
+        using (var interrupted = new CancellationTokenSource(TimeSpan.FromMilliseconds(100)))
+        {
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => whisper.TryTranscribeAsync(wav, interrupted.Token));
+            Got("in-flight native cancellation", "propagated OperationCanceledException");
+        }
         // Simulate a UI-originating call followed immediately by synchronous Quit/Dispose.
         // Forwarding posts lets a regression fail an assertion instead of hanging the test host.
         var context = new ObservedCallerContext();

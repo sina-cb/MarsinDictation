@@ -96,6 +96,8 @@ returns 503, invalid WAV returns 400, and no recognized speech returns 422.
 Browser Origin headers and cross-site requests are rejected, with no CORS allowance.
 Use a native localhost client. A port collision disables the API while dictation continues.
 Hotkey and API inference share the same model/gate when embedded is selected.
+See the [supported API contract and Windows update guide](docs/windows-local-api.md)
+for request examples, every error, deadlines, startup and recovery instructions.
 
 ## Key Features
 

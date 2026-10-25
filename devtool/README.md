@@ -50,6 +50,14 @@ If no command is given, the OS is auto-detected.
 | `--verbose` | Show full evidence output for all tests |
 | `--release` | Build in Release configuration (default: Debug) |
 | `--dry-run` | Show what would be executed without running anything |
+| `--package` | Windows: build/test/publish a full installer in `tmp/installers/` using Inno Setup 6 |
+| `--install` | Windows: build the same installer, then open its UAC wizard; launch the app normally afterward |
+
+Windows build/test/package modes leave a running installed app alone. Default tests
+exclude model-dependent, hosted and GPU benchmark categories; an explicit `--filter`
+selects those checks when desired. Set `ISCC_PATH` if the compiler is outside PATH
+or the standard Inno Setup 6 directory. See the [Windows API/update guide](../docs/windows-local-api.md)
+for the full contract, model test command and normal-user update steps.
 
 ## Log Tailing (`--hold`)
 

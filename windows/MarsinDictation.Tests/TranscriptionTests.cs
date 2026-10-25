@@ -63,6 +63,7 @@ public class TranscriptionTests : EvidenceTest
     /// Label: "User Voice: Hello World! from text to speech"
     /// </summary>
     [Fact]
+    [Trait("Category", "Hosted")]
     public async Task UserVoice_HelloWorld_OpenAI()
     {
         Setup("User-recorded audio file (TestData/FirstHello.wav) + OpenAI API key from .env");
@@ -136,6 +137,7 @@ public class TranscriptionTests : EvidenceTest
     }
 
     [Fact]
+    [Trait("Category", "LocalEmbedded")]
     public async Task UserVoice_HelloWorld_Embedded()
     {
         Setup("Embedded Whisper API testing using Whisper.net.");

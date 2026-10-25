@@ -64,6 +64,7 @@ public sealed class WhisperTranscriptionClient : ITranscriptionClient, IDisposab
 
     private async Task<TranscriptionResult> TranscribeCoreAsync(byte[] wavData, CancellationToken ct)
     {
+        ct.ThrowIfCancellationRequested();
         if (_disposed) return new TranscriptionResult(false, null, "Whisper client disposed");
         // Lazy load for simplicity, though the app can explicitly call LoadModel() during startup to avoid lag
         if (_processor is null)
@@ -93,10 +94,15 @@ public sealed class WhisperTranscriptionClient : ITranscriptionClient, IDisposab
             }
 
             var text = string.Join("", segments).Trim();
+            ct.ThrowIfCancellationRequested();
             if (string.IsNullOrWhiteSpace(text))
                 return new TranscriptionResult(true, "[no audio]", null);
 
             return new TranscriptionResult(true, text, null);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {

@@ -69,6 +69,7 @@ class C:
 ROOT = Path(__file__).resolve().parent.parent
 WINDOWS_DIR = ROOT / "windows"
 APP_PROJECT = "MarsinDictation.App"
+DEFAULT_TEST_FILTER = "Category!=LocalEmbedded&Category!=Hosted&Category!=GPU_Benchmark"
 SOURCE_EXTENSIONS = {".cs", ".xaml", ".csproj", ".sln", ".json", ".resx"}
 
 # ── Logging ───────────────────────────────────────────────────
@@ -292,8 +293,7 @@ def do_test(config, verbose, dry_run, filter_expr=None):
         "--results-directory", trx_dir,
         "--verbosity", "quiet"
     ]
-    if filter_expr:
-        test_cmd.extend(["--filter", filter_expr])
+    test_cmd.extend(["--filter", filter_expr or DEFAULT_TEST_FILTER])
 
     try:
         proc = subprocess.run(test_cmd, cwd=str(WINDOWS_DIR),
@@ -494,13 +494,18 @@ def deploy_windows(args):
     v = args.verbose
     d = args.dry_run
 
-    kill_existing(dry_run=d)
+    # Building, testing and packaging must not interrupt the installed API consumer.
+    if args.run or not (args.build or args.test or args.install or args.package):
+        kill_existing(dry_run=d)
     run_step("Check .NET SDK", ["dotnet", "--version"], dry_run=d, verbose=v)
 
     if args.install or args.package:
         # --install or --package: publish + release build
         if not do_build("Release", v, d):
             return print_summary(start)
+        run_step("Run offline tests", ["dotnet", "test", "--no-build", "-c", "Release",
+                 "--filter", DEFAULT_TEST_FILTER, "--verbosity", "quiet"],
+                 cwd=WINDOWS_DIR, dry_run=d, verbose=v)
         code = print_summary(start)
         if code != 0:
             return code
@@ -518,7 +523,7 @@ def deploy_windows(args):
             info("Auto-rebuilding dirty binary...")
             if not do_build(config, v, d):
                 return print_summary(start)
-            run_step("Run tests", ["dotnet", "test", "--no-build", "-c", config, "--verbosity", "quiet"],
+            run_step("Run tests", ["dotnet", "test", "--no-build", "-c", config, "--filter", DEFAULT_TEST_FILTER, "--verbosity", "quiet"],
                      cwd=WINDOWS_DIR, dry_run=d, verbose=v)
         code = print_summary(start)
         if code == 0:
@@ -528,7 +533,7 @@ def deploy_windows(args):
     elif args.build:
         # --build: build + test, don't run
         do_build(config, v, d)
-        run_step("Run tests", ["dotnet", "test", "--no-build", "-c", config, "--verbosity", "quiet"],
+        run_step("Run tests", ["dotnet", "test", "--no-build", "-c", config, "--filter", DEFAULT_TEST_FILTER, "--verbosity", "quiet"],
                  cwd=WINDOWS_DIR, dry_run=d, verbose=v)
         return print_summary(start)
 
@@ -536,7 +541,7 @@ def deploy_windows(args):
         # Default: build + test + run
         if not do_build(config, v, d):
             return print_summary(start)
-        run_step("Run tests", ["dotnet", "test", "--no-build", "-c", config, "--verbosity", "quiet"],
+        run_step("Run tests", ["dotnet", "test", "--no-build", "-c", config, "--filter", DEFAULT_TEST_FILTER, "--verbosity", "quiet"],
                  cwd=WINDOWS_DIR, dry_run=d, verbose=v)
         code = print_summary(start)
         if code == 0:
@@ -548,8 +553,13 @@ INSTALL_DIR = Path(os.environ.get("PROGRAMFILES", r"C:\Program Files")) / "Marsi
 EXE_NAME = "MarsinDictation.App.exe"
 
 def do_install(dry_run=False, package_only=False):
-    """Publish self-contained, copy to Program Files (UAC), create desktop shortcut."""
+    """Build the standard self-contained installer, optionally opening its UAC wizard."""
     header("Installing MarsinDictation")
+    import xml.etree.ElementTree as ET
+    version = ET.parse(WINDOWS_DIR / APP_PROJECT / f"{APP_PROJECT}.csproj").findtext("PropertyGroup/Version")
+    if not version:
+        fail("Windows app project must declare a release Version")
+        return 1
 
     # 1. dotnet publish → self-contained single-dir
     publish_dir = WINDOWS_DIR / APP_PROJECT / "bin" / "publish"
@@ -588,29 +598,28 @@ def do_install(dry_run=False, package_only=False):
             urllib.request.urlretrieve(f"https://huggingface.co/ggerganov/whisper.cpp/resolve/main/{model_name}", str(model_cache))
             ok("Model downloaded")
 
-    if package_only:
-        import shutil
-        info("Building Redistributable Windows Installer via Inno Setup...")
-        iscc_path = shutil.which("iscc") or shutil.which("iscc.exe")
-        
-        # Check standard Inno Setup installs if lacking in PATH
-        if not iscc_path:
-            alt_path = Path("C:/Program Files (x86)/Inno Setup 6/ISCC.exe")
-            if alt_path.exists():
-                iscc_path = str(alt_path)
+    import shutil
+    info("Building Redistributable Windows Installer via Inno Setup...")
+    iscc_path = os.environ.get("ISCC_PATH") or shutil.which("iscc") or shutil.which("iscc.exe")
 
-        if not iscc_path:
-            fail("Inno Setup Compiler (iscc) not found in PATH. Required for --package.")
-            return 1
-            
-        import tempfile
-        iss_path = ROOT / "tmp" / "MarsinDictation.iss"
-        out_dir = ROOT / "tmp" / "installers"
-        out_dir.mkdir(parents=True, exist_ok=True)
+    # Check standard Inno Setup installs if lacking in PATH
+    if not iscc_path:
+        alt_path = Path("C:/Program Files (x86)/Inno Setup 6/ISCC.exe")
+        if alt_path.exists():
+            iscc_path = str(alt_path)
+
+    if not iscc_path:
+        fail("Inno Setup Compiler (iscc) not found in PATH. Required for --package and --install.")
+        return 1
         
-        iss_text = f"""[Setup]
+    iss_path = ROOT / "tmp" / "MarsinDictation.iss"
+    out_dir = ROOT / "tmp" / "installers"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    iss_text = f"""[Setup]
 AppName=MarsinDictation
-AppVersion=1.0.0
+AppVersion={version}
+VersionInfoVersion={version}
 DefaultDirName={{autopf}}\\MarsinDictation
 DefaultGroupName=MarsinDictation
 OutputBaseFilename=MarsinDictation_Setup_Windows
@@ -619,6 +628,8 @@ SolidCompression=yes
 ArchitecturesAllowed=x64
 ArchitecturesInstallIn64BitMode=x64
 PrivilegesRequired=admin
+CloseApplications=yes
+RestartApplications=no
 OutputDir={str(out_dir)}
 
 [Files]
@@ -632,105 +643,40 @@ Name: "{{autodesktop}}\\MarsinDictation"; Filename: "{{app}}\\{EXE_NAME}"; Tasks
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional icons:"
 """
-        iss_path.write_text(iss_text, encoding="utf-8")
-        if dry_run:
-            dim(f"  [dry-run] iscc {iss_path}")
-        else:
-            try:
-                subprocess.run([iscc_path, str(iss_path)], check=True, capture_output=True, text=True)
-                ok(f"Created installer: {out_dir / 'MarsinDictation_Setup_Windows.exe'}")
-            except subprocess.CalledProcessError as e:
-                fail(f"Inno Setup Compilation failed — exit code {e.returncode}")
-                if e.stderr:
-                    for line in e.stderr.strip().splitlines()[-5:]:
-                        print(f"  {line}")
-                if e.stdout:
-                    for line in e.stdout.strip().splitlines()[-5:]:
-                        print(f"  {line}")
-                return 1
+    iss_path.write_text(iss_text, encoding="utf-8")
+    if dry_run:
+        dim(f"  [dry-run] iscc {iss_path}")
+    else:
+        try:
+            subprocess.run([iscc_path, str(iss_path)], check=True, capture_output=True, text=True)
+            ok(f"Created installer: {out_dir / 'MarsinDictation_Setup_Windows.exe'}")
+        except subprocess.CalledProcessError as e:
+            fail(f"Inno Setup Compilation failed — exit code {e.returncode}")
+            if e.stderr:
+                for line in e.stderr.strip().splitlines()[-5:]:
+                    print(f"  {line}")
+            if e.stdout:
+                for line in e.stdout.strip().splitlines()[-5:]:
+                    print(f"  {line}")
+            return 1
+    if package_only:
         return 0
 
-    # 2. Copy to Program Files (requires admin — UAC prompt)
-    info(f"Installing to {INSTALL_DIR} (requires admin)...")
+    installer = out_dir / "MarsinDictation_Setup_Windows.exe"
+    info("Opening the Windows installer; approve its normal UAC prompt...")
     if dry_run:
-        dim(f"  [dry-run] robocopy {publish_dir} {INSTALL_DIR}")
-        dim(f"  [dry-run] copy {model_cache} {INSTALL_DIR}")
-    else:
-        # Write a temp .ps1 script to avoid nested-quote issues with spaces in paths
-        import tempfile
-        script_path = Path(tempfile.mktemp(suffix=".ps1"))
-        script_path.write_text(
-            f'Start-Process -FilePath "robocopy.exe"'
-            f' -ArgumentList @(\'"{publish_dir}"\', \'"{INSTALL_DIR}"\', "/MIR", "/NJH", "/NJS", "/NDL", "/NC", "/NS")'
-            f' -Verb RunAs -Wait\n'
-            f'Start-Process -FilePath "cmd.exe"'
-            f' -ArgumentList @("/C", "copy", "/Y", \'"{model_cache}"\', \'"{INSTALL_DIR}\\{model_name}"\')'
-            f' -Verb RunAs -Wait\n',
-            encoding="utf-8"
-        )
-        try:
-            subprocess.run(["powershell", "-ExecutionPolicy", "Bypass", "-File", str(script_path)],
-                          check=False)
-            if INSTALL_DIR.exists() and (INSTALL_DIR / EXE_NAME).exists():
-                ok(f"Installed to {INSTALL_DIR}")
-            else:
-                fail("Installation may have failed — exe not found")
-                return 1
-        except Exception as e:
-            fail(f"Installation failed: {e}")
-            return 1
-        finally:
-            script_path.unlink(missing_ok=True)
-
-    # 3. Create desktop shortcut
-    info("Creating desktop shortcut...")
-    if dry_run:
-        dim("  [dry-run] Create MarsinDictation.lnk on Desktop")
-    else:
-        desktop = Path.home() / "Desktop"
-        shortcut_path = desktop / "MarsinDictation.lnk"
-        target = INSTALL_DIR / EXE_NAME
-
-        ps_shortcut = f'''
-$ws = New-Object -ComObject WScript.Shell
-$sc = $ws.CreateShortcut("{shortcut_path}")
-$sc.TargetPath = "{target}"
-$sc.WorkingDirectory = "{INSTALL_DIR}"
-$sc.Description = "MarsinDictation — AI-powered dictation"
-$sc.IconLocation = "{target},0"
-$sc.Save()
-
-# Force Windows Explorer to refresh its icon cache immediately
-Add-Type -MemberDefinition '[DllImport("shell32.dll")] public static extern void SHChangeNotify(uint wEventId, uint uFlags, IntPtr dwItem1, IntPtr dwItem2);' -Name SHC -Namespace Win32
-[Win32.SHC]::SHChangeNotify(0x08000000, 0x0000, [IntPtr]::Zero, [IntPtr]::Zero)
-'''
-        try:
-            subprocess.run(["powershell", "-Command", ps_shortcut],
-                         check=True, capture_output=True, text=True)
-            ok(f"Desktop shortcut created: {shortcut_path}")
-        except subprocess.CalledProcessError as e:
-            warn(f"Could not create shortcut: {e}")
-
-    # 4. Copy .env to %LOCALAPPDATA%/MarsinDictation/ (so installed app finds API keys)
-    env_src = ROOT / ".env"
-    if env_src.exists():
-        local_app_data = os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData" / "Local"))
-        env_dst = Path(local_app_data) / "MarsinDictation" / ".env"
-        env_dst.parent.mkdir(parents=True, exist_ok=True)
-        if dry_run:
-            dim(f"  [dry-run] Copy .env → {env_dst}")
-        else:
-            import shutil
-            shutil.copy2(str(env_src), str(env_dst))
-            ok(f"Copied .env → {env_dst}")
-    else:
-        warn("No .env file found — installed app will need API keys configured manually")
-
-    print()
-    ok("Installation complete!")
-    print(f"  {C.DIM}Location: {INSTALL_DIR}{C.RESET}")
-    print(f"  {C.DIM}Desktop shortcut: MarsinDictation.lnk{C.RESET}")
-    print(f"  {C.DIM}Launch from Start Menu or desktop icon{C.RESET}")
+        dim(f"  [dry-run] Run installer: {installer}")
+        return 0
+    # PowerShell literal quoting keeps checkout paths out of shell code.
+    literal = str(installer).replace("'", "''")
+    command = ("$ErrorActionPreference = 'Stop'; try { "
+               f"$p = Start-Process -FilePath '{literal}' -Verb RunAs -Wait -PassThru; "
+               "exit $p.ExitCode } catch { Write-Error $_ -ErrorAction Continue; exit 1 }")
+    result = subprocess.run(["powershell", "-NoProfile", "-Command", command])
+    if result.returncode != 0:
+        fail(f"Installer did not complete successfully (exit {result.returncode})")
+        return 1
+    ok("Installer completed. Open MarsinDictation normally from Start or desktop.")
     return 0
 
 # ── Kill / Clean ──────────────────────────────────────────────

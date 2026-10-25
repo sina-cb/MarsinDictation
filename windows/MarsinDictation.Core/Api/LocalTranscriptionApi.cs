@@ -26,6 +26,7 @@ public sealed class LocalTranscriptionApi : IDisposable
     private Task? _loop;
     private Task? _active;
     private int _busy;
+    private int _disposed;
 
     public LocalTranscriptionApi(
         Func<byte[], CancellationToken, Task<TranscriptionResult?>> transcribe,
@@ -106,6 +107,7 @@ public sealed class LocalTranscriptionApi : IDisposable
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
         deadline.CancelAfter(TimeSpan.FromMinutes(2));
+        Task? read = null;
         try
         {
             var request = context.Request;
@@ -113,10 +115,14 @@ public sealed class LocalTranscriptionApi : IDisposable
             readDeadline.CancelAfter(TimeSpan.FromSeconds(10));
             // Content-Length was checked before allocation. Read exactly it, never an unbounded stream.
             var wav = new byte[(int)request.ContentLength64];
-            await request.InputStream.ReadExactlyAsync(wav, readDeadline.Token);
+            // HTTP.sys reads do not reliably cancel once pending. Bound our wait explicitly;
+            // closing/aborting the response below terminates any outstanding native read.
+            read = request.InputStream.ReadExactlyAsync(wav, readDeadline.Token).AsTask();
+            await read.WaitAsync(readDeadline.Token);
             if (!IsNormalizedWav(wav))
             { await Reply(context, 400, new { error = "pcm16_mono_16000_wav_required" }); return; }
             var result = await _transcribe(wav, deadline.Token);
+            deadline.Token.ThrowIfCancellationRequested();
             if (result is null)
             { await Reply(context, 429, new { error = "transcription_busy" }); return; }
             if (!result.Success)
@@ -137,6 +143,14 @@ public sealed class LocalTranscriptionApi : IDisposable
         { await Reply(context, 503, new { error = "embedded_transcription_failed" }); }
         finally
         {
+            if (read is { IsCompleted: false })
+            {
+                try { context.Response.Abort(); } catch { }
+                // Observe the native read's eventual failure without delaying shutdown/admission.
+                _ = read.ContinueWith(task => { _ = task.Exception; },
+                    CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted |
+                    TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            }
             try { context.Response.Close(); } catch { }
             Interlocked.Exchange(ref _busy, 0);
         }
@@ -195,6 +209,7 @@ public sealed class LocalTranscriptionApi : IDisposable
 
     public void Dispose()
     {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
         _shutdown.Cancel();
         _listener.Close();
         try { _loop?.GetAwaiter().GetResult(); _active?.GetAwaiter().GetResult(); } catch { }
