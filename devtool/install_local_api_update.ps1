@@ -69,6 +69,8 @@ foreach ($dictationName in $dictationFiles) {
     if (!(Test-Path -LiteralPath $dictationSource -PathType Leaf)) { throw "Missing update/backup file: $dictationName" }
     if (!(Test-Path -LiteralPath (Join-Path $dictationInstalled $dictationName) -PathType Leaf)) { throw "Missing installed file: $dictationName" }
 }
+$dictationInstalledVersion = (Get-Item -LiteralPath (Join-Path $dictationInstalled 'MarsinDictation.App.dll')).VersionInfo.FileVersion
+if ($dictationInstalledVersion -notin @('1.0.0.0', '1.0.1.0')) { throw 'Installed version is outside this patch scope; do not apply or roll back over a different release.' }
 if (!$Rollback) {
     $dictationAlreadyCurrent = $true
     foreach ($dictationEntry in $dictationPayloadManifest.files) {
@@ -81,8 +83,6 @@ if (!$Rollback) {
         [pscustomobject]@{ operation = 'already_current'; version = '1.0.1.0'; filesChanged = $false; processesChanged = $false; note = 'All four installed files match the approved payload. No update is needed. If the app is closed, open it normally; runtime health was not checked by this updater.' } | ConvertTo-Json
         return
     }
-    $dictationInstalledVersion = (Get-Item -LiteralPath (Join-Path $dictationInstalled 'MarsinDictation.App.dll')).VersionInfo.FileVersion
-    if ($dictationInstalledVersion -notin @('1.0.0.0', '1.0.1.0')) { throw 'Installed version is outside this patch scope; do not overwrite a different release.' }
 }
 $dictationIdentity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $dictationPrincipal = [Security.Principal.WindowsPrincipal]::new($dictationIdentity)

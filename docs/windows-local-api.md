@@ -125,6 +125,9 @@ installer for recovery; reinstall it normally if a full update must be reverted.
 `devtool/install_local_api_update.ps1` and the old 1.0.1 four-file payload are
 historical recovery tools, not the supported full release/update path. Do not apply
 that patch or its rollback over a different release.
+The recovery helper enforces this scope for both apply and rollback: only installed
+versions 1.0.0.0 and 1.0.1.0 are accepted; a newer or unknown version is rejected
+before process inspection/stopping, backup creation or file copying.
 
 Default deploy tests exclude `LocalEmbedded`, `Hosted` and `GPU_Benchmark` categories.
 Run the real installed-model/API test explicitly; it fails if its existing AppData

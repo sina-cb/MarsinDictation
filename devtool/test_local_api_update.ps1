@@ -53,3 +53,37 @@ Assert-DictationCase 'New PID during backup is refused before stop or copy' { As
 Assert-DictationCase 'Reused PID with changed start time is refused before stop or copy' { Assert-DictationThrows { Confirm-DictationUpdateProcessSnapshot -Snapshot $dictationOne -Inventory @($dictationReusedPid) -InstalledExe $dictationTarget } }
 Assert-DictationCase 'Unchanged exact snapshot passes confirmation' { Confirm-DictationUpdateProcessSnapshot -Snapshot $dictationOne -Inventory @($dictationOne) -InstalledExe $dictationTarget }
 Write-Output "Selection tests passed: $dictationPassed/15; no installed files or real processes changed."
+
+# Execute the actual updater preflight through the last read-only statement. Stop before
+# WindowsIdentity/UAC checks so supported rollback cases are testable without elevation.
+# All filesystem reads are simulated; any unexpected process/write command fails the case.
+function Invoke-DictationRollbackPreflight {
+    param([string]$Source, [string]$InstalledVersion)
+    $dictationText = [IO.File]::ReadAllText($Source)
+    $dictationBoundary = $dictationText.IndexOf('$dictationIdentity = ', [StringComparison]::Ordinal)
+    if ($dictationBoundary -lt 0) { throw 'Missing updater privilege boundary.' }
+    # ScriptBlock.Create has no source-file context; supply the original script root.
+    $dictationRootLiteral = "'" + [IO.Path]::GetDirectoryName($Source).Replace("'", "''") + "'"
+    $dictationPreflight = [scriptblock]::Create($dictationText.Substring(0, $dictationBoundary).Replace('$PSScriptRoot', $dictationRootLiteral))
+    $dictationObserved = [pscustomobject]@{MutationCalls=0}
+    function Get-Item { param($LiteralPath) [pscustomobject]@{VersionInfo=[pscustomobject]@{FileVersion=$InstalledVersion}} }
+    function Test-Path { param($LiteralPath, $PathType) !(($LiteralPath -replace '/', '\') -match '\\payload$') }
+    function Get-CimInstance { $dictationObserved.MutationCalls++; throw 'Unexpected process enumeration during preflight.' }
+    function Copy-Item { $dictationObserved.MutationCalls++; throw 'Unexpected file copy during preflight.' }
+    function New-Item { $dictationObserved.MutationCalls++; throw 'Unexpected file creation during preflight.' }
+    function Stop-Process { $dictationObserved.MutationCalls++; throw 'Unexpected process stop during preflight.' }
+    $dictationFailure = $null
+    try { & $dictationPreflight -Rollback } catch { $dictationFailure = $_.Exception.Message }
+    if ($dictationObserved.MutationCalls) { throw 'Rollback preflight attempted process or file mutation.' }
+    if ($InstalledVersion -in @('1.0.0.0', '1.0.1.0')) {
+        if ($dictationFailure) { throw "Supported rollback was rejected: $dictationFailure" }
+    } elseif ($dictationFailure -notlike '*outside this patch scope*') {
+        throw "Unsupported rollback did not fail at compatibility guard: $dictationFailure"
+    }
+}
+foreach ($dictationVersion in @('1.0.0.0', '1.0.1.0', '1.0.3.0', '2.0.0.0', '')) {
+    Assert-DictationCase "Rollback preflight scope: '$dictationVersion', no process or file mutation" {
+        Invoke-DictationRollbackPreflight -Source $dictationSource -InstalledVersion $dictationVersion
+    }
+}
+Write-Output "All updater tests passed: $dictationPassed/20; simulated preflight only, no installed files or real processes changed."
