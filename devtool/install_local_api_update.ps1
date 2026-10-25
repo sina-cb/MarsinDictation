@@ -51,7 +51,7 @@ $dictationProcess = $null
 if ($dictationRunning.Count -eq 1) {
     $dictationProcess = Get-Process -Id $ExpectedProcessId -ErrorAction Stop
     if ($dictationRunning[0].ProcessId -ne $ExpectedProcessId -or $dictationProcess.Path -ne $dictationExe -or
-        $dictationProcess.StartTime.ToUniversalTime().ToString('O') -ne $ExpectedStartUtc) { throw 'Process identity/start time changed; inspect before restarting.' }
+        $dictationProcess.StartTime.ToUniversalTime().ToString('O') -ne $ExpectedStartUtc) { throw 'Process identity/start time changed; inspect before stopping it.' }
 }
 if (!$Rollback) {
     if (Test-Path -LiteralPath $dictationBackup) { throw 'Backup already exists; choose a fresh directory.' }
@@ -74,20 +74,11 @@ try {
     if (!$Rollback) {
         foreach ($dictationName in $dictationFiles) { Copy-Item -LiteralPath (Join-Path $dictationBackup $dictationName) -Destination (Join-Path $dictationInstalled $dictationName) -Force }
     }
-    Start-Process -FilePath $dictationExe -WorkingDirectory $dictationInstalled -WindowStyle Hidden
+    Write-Warning 'Update failed. Close this Administrator PowerShell and open MarsinDictation normally from Start or its desktop shortcut after checking the restored files.'
     throw
 }
-$dictationNew = Start-Process -FilePath $dictationExe -WorkingDirectory $dictationInstalled -WindowStyle Hidden -PassThru
-$dictationHealth = $null
-if (!$Rollback) {
-    for ($dictationAttempt = 0; $dictationAttempt -lt 40; $dictationAttempt++) {
-        try {
-            $dictationHealth = Invoke-RestMethod -Uri 'http://127.0.0.1:6976/health' -TimeoutSec 1
-            if ($dictationHealth.service -eq 'marsin-dictation' -and $dictationHealth.version -eq '1.0.1.0' -and $dictationHealth.backend -eq 'embedded-whisper' -and $dictationHealth.ready -eq $true) { break }
-        } catch { }
-        Start-Sleep -Milliseconds 500
-    }
-}
-$dictationReceipt = [pscustomobject]@{ operation = $(if ($Rollback) { 'rollback' } else { 'files_updated' }); processId = $dictationNew.Id; startTimeUtc = $dictationNew.StartTime.ToUniversalTime().ToString('O'); backup = $dictationBackup; version = (Get-Item -LiteralPath (Join-Path $dictationInstalled 'MarsinDictation.App.dll')).VersionInfo.FileVersion; health = $dictationHealth; note = 'Verify real WAV inference separately before claiming end-to-end readiness.' }
+# Never launch from this elevated shell: the normal tray app/API should run at user integrity.
+$dictationReceipt = [pscustomobject]@{ operation = $(if ($Rollback) { 'files_rolled_back' } else { 'files_updated' }); launchRequired = $true; executable = $dictationExe; backup = $dictationBackup; version = (Get-Item -LiteralPath (Join-Path $dictationInstalled 'MarsinDictation.App.dll')).VersionInfo.FileVersion; note = 'Close Administrator PowerShell and open MarsinDictation normally from Start or its desktop shortcut. Health and real WAV verification are pending that launch.' }
 $dictationReceipt | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $dictationBackup $(if ($Rollback) { 'rollback_receipt.json' } else { 'update_receipt.json' }))
 $dictationReceipt | ConvertTo-Json -Depth 4
+Write-Host 'Close this Administrator PowerShell and open MarsinDictation normally from Start or its desktop shortcut.'
