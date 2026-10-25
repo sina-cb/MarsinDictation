@@ -1,5 +1,15 @@
 # Windows local transcription API — 2026-10-25
 
+## Latest installed proof — 05:02 PDT
+
+The user successfully applied the main-install update at04:56:10. Backup `tmp/releases/MarsinDictation-1.0.1-local-api/backups/local_api_backup_20261025_045604/` preserves original1.0.0.0 plus the successful `files_updated` receipt. All four installed files independently match the approved1.0.1.0 payload hashes. A repeated Apply failed because the app was closed and the old preflight required one process; that repeat performed no backup/stop/copy. No further reinstall is needed.
+
+The user then normally launched installed executable PID76792 at05:01:29PDT. Agent did not launch a duplicate or stop any process. Tool token was verified medium/non-admin. Fresh GET6976/health200 reports version1.0.1.0, embedded-whisper and readytrue. One POST of normalized known `FirstHello.wav` returned200 in1387ms with hello/world assertions true and matching local backend/version. No hosted request/microphone recording/engine mutation. Receipt `tmp/installed_local_api_verification.json` omits transcript content.
+
+Updater follow-up now supports closed apps, discovers the current exact installed executable without a historical fixed PID, preserves optional explicit identity guards, refuses unknown/multiple installed identities and rechecks before stop/copy. All four installed hash matches return `already_current` before any backup/stop/copy. `devtool/test_local_api_update.ps1` covers15 selection/identity/race cases without real process/file mutation; all15 pass. Packaged helper/README are updated without changing approved native payload. Actual medium-token packaged `-Apply` returned `already_current`, filesChangedfalse/processesChangedfalse, preserving the successful original backup/receipt. Astra independently approved final source/package equality, all four unchanged payload hashes, tests and README. No updater rerun is needed for this installation.
+
+## Initial implementation and prepared-package proof (historical)
+
 User requested a minimal API for MagicVJ to reuse MarsinDictation's local model and an update for the main installation. Implemented on `codex/local-dictation-api`, without provider keys, model downloads, secrets/config changes, commits to main, or a remote push. Installation is prepared for the user; it has **not** been applied.
 
 ## Implemented contract

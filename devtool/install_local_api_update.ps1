@@ -5,10 +5,39 @@ param(
     [switch]$Rollback,
     [string]$PayloadDirectory = '',
     [string]$BackupDirectory = '',
-    [int]$ExpectedProcessId = 45576,
-    [string]$ExpectedStartUtc = '2026-10-15T20:46:56.4803376Z'
+    [int]$ExpectedProcessId = 0,
+    [string]$ExpectedStartUtc = ''
 )
 $ErrorActionPreference = 'Stop'
+
+# Pure selection/confirmation functions are also exercised by test_local_api_update.ps1.
+function Get-DictationUpdateProcessSnapshot {
+    param([object[]]$Inventory, [string]$InstalledExe, [int]$ExpectedProcessId = 0, [string]$ExpectedStartUtc = '')
+    if (@($Inventory | Where-Object { !$_.ExecutablePath -or !$_.StartTimeUtc }).Count) { throw 'A dictation process has unknown identity; inspect it before updating.' }
+    $dictationMatches = @($Inventory | Where-Object { [string]::Equals($_.ExecutablePath, $InstalledExe, [StringComparison]::OrdinalIgnoreCase) })
+    if ($dictationMatches.Count -gt 1) { throw 'Multiple processes use the installed executable; close extra instances before updating.' }
+    if (!$dictationMatches.Count) {
+        if ($ExpectedProcessId -or $ExpectedStartUtc) { throw 'The explicitly expected process is no longer running.' }
+        return $null
+    }
+    $dictationSelected = $dictationMatches[0]
+    if (($ExpectedProcessId -and $dictationSelected.ProcessId -ne $ExpectedProcessId) -or
+        ($ExpectedStartUtc -and $dictationSelected.StartTimeUtc -ne $ExpectedStartUtc)) { throw 'Explicit process identity/start time does not match the installed app.' }
+    return $dictationSelected
+}
+function Confirm-DictationUpdateProcessSnapshot {
+    param($Snapshot, [object[]]$Inventory, [string]$InstalledExe)
+    $dictationNow = Get-DictationUpdateProcessSnapshot -Inventory $Inventory -InstalledExe $InstalledExe
+    if (($null -eq $Snapshot) -ne ($null -eq $dictationNow)) { throw 'Installed app started or exited during update preparation; no files were copied.' }
+    if ($Snapshot -and ($Snapshot.ProcessId -ne $dictationNow.ProcessId -or $Snapshot.StartTimeUtc -ne $dictationNow.StartTimeUtc)) { throw 'Installed app identity changed during update preparation; no files were copied.' }
+}
+function Get-DictationUpdateProcessInventory {
+    @(Get-CimInstance Win32_Process -Filter "Name='MarsinDictation.App.exe'") | ForEach-Object {
+        $dictationObserved = Get-Process -Id $_.ProcessId -ErrorAction Stop
+        if (!$_.ExecutablePath -or !$dictationObserved.Path -or $_.ExecutablePath -ne $dictationObserved.Path) { throw 'A dictation process has unknown or changing identity; inspect it before updating.' }
+        [pscustomobject]@{ ProcessId = $_.ProcessId; ExecutablePath = $dictationObserved.Path; StartTimeUtc = $dictationObserved.StartTime.ToUniversalTime().ToString('O') }
+    }
+}
 $dictationRepo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $dictationInstalled = 'C:\Program Files\MarsinDictation'
 $dictationExe = Join-Path $dictationInstalled 'MarsinDictation.App.exe'
@@ -27,11 +56,6 @@ if (!$Apply -and !$Rollback) {
     [pscustomobject]@{ operation = 'plan'; installed = $dictationInstalled; publish = $dictationPublish; backup = $dictationBackup; files = $dictationFiles; expectedPid = $ExpectedProcessId; expectedStartUtc = $ExpectedStartUtc } | ConvertTo-Json -Depth 3
     return
 }
-$dictationIdentity = [Security.Principal.WindowsIdentity]::GetCurrent()
-$dictationPrincipal = [Security.Principal.WindowsPrincipal]::new($dictationIdentity)
-if (!$dictationPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    throw 'Program Files update requires an elevated PowerShell approved through Windows UAC. No files or processes were changed.'
-}
 if (!$Rollback) {
     $dictationPayloadManifest = Get-Content -LiteralPath (Join-Path $dictationPublish 'manifest.json') | ConvertFrom-Json
     if ($dictationPayloadManifest.version -ne '1.0.1.0' -or $dictationPayloadManifest.files.Count -ne 4) { throw 'Unexpected payload manifest.' }
@@ -45,26 +69,45 @@ foreach ($dictationName in $dictationFiles) {
     if (!(Test-Path -LiteralPath $dictationSource -PathType Leaf)) { throw "Missing update/backup file: $dictationName" }
     if (!(Test-Path -LiteralPath (Join-Path $dictationInstalled $dictationName) -PathType Leaf)) { throw "Missing installed file: $dictationName" }
 }
-$dictationRunning = @(Get-CimInstance Win32_Process -Filter "Name='MarsinDictation.App.exe'")
-if ($dictationRunning.Count -gt 1 -or (!$Rollback -and $dictationRunning.Count -ne 1)) { throw 'Expected one identified process for apply, or zero/one for rollback.' }
-$dictationProcess = $null
-if ($dictationRunning.Count -eq 1) {
-    $dictationProcess = Get-Process -Id $ExpectedProcessId -ErrorAction Stop
-    if ($dictationRunning[0].ProcessId -ne $ExpectedProcessId -or $dictationProcess.Path -ne $dictationExe -or
-        $dictationProcess.StartTime.ToUniversalTime().ToString('O') -ne $ExpectedStartUtc) { throw 'Process identity/start time changed; inspect before stopping it.' }
+if (!$Rollback) {
+    $dictationAlreadyCurrent = $true
+    foreach ($dictationEntry in $dictationPayloadManifest.files) {
+        if ((Get-FileHash -LiteralPath (Join-Path $dictationInstalled $dictationEntry.name) -Algorithm SHA256).Hash -ne $dictationEntry.sha256) { $dictationAlreadyCurrent = $false }
+    }
+    if ($dictationAlreadyCurrent) {
+        if ($ExpectedProcessId -or $ExpectedStartUtc) {
+            $null = Get-DictationUpdateProcessSnapshot -Inventory @(Get-DictationUpdateProcessInventory) -InstalledExe $dictationExe -ExpectedProcessId $ExpectedProcessId -ExpectedStartUtc $ExpectedStartUtc
+        }
+        [pscustomobject]@{ operation = 'already_current'; version = '1.0.1.0'; filesChanged = $false; processesChanged = $false; note = 'All four installed files match the approved payload. No update is needed. If the app is closed, open it normally; runtime health was not checked by this updater.' } | ConvertTo-Json
+        return
+    }
+    $dictationInstalledVersion = (Get-Item -LiteralPath (Join-Path $dictationInstalled 'MarsinDictation.App.dll')).VersionInfo.FileVersion
+    if ($dictationInstalledVersion -notin @('1.0.0.0', '1.0.1.0')) { throw 'Installed version is outside this patch scope; do not overwrite a different release.' }
 }
+$dictationIdentity = [Security.Principal.WindowsIdentity]::GetCurrent()
+$dictationPrincipal = [Security.Principal.WindowsPrincipal]::new($dictationIdentity)
+if (!$dictationPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Program Files update requires an elevated PowerShell approved through Windows UAC. No files or processes were changed.' }
+$dictationSnapshot = Get-DictationUpdateProcessSnapshot -Inventory @(Get-DictationUpdateProcessInventory) -InstalledExe $dictationExe -ExpectedProcessId $ExpectedProcessId -ExpectedStartUtc $ExpectedStartUtc
 if (!$Rollback) {
     if (Test-Path -LiteralPath $dictationBackup) { throw 'Backup already exists; choose a fresh directory.' }
     New-Item -ItemType Directory -Path $dictationBackup | Out-Null
     foreach ($dictationName in $dictationFiles) { Copy-Item -LiteralPath (Join-Path $dictationInstalled $dictationName) -Destination (Join-Path $dictationBackup $dictationName) }
-    [pscustomobject]@{ installed = $dictationInstalled; executable = $dictationExe; originalPid = $ExpectedProcessId; originalStartUtc = $ExpectedStartUtc; files = $dictationFiles; oldVersion = (Get-Item -LiteralPath (Join-Path $dictationInstalled 'MarsinDictation.App.dll')).VersionInfo.FileVersion } |
+    [pscustomobject]@{ installed = $dictationInstalled; executable = $dictationExe; originalPid = $(if ($dictationSnapshot) { $dictationSnapshot.ProcessId } else { $null }); originalStartUtc = $(if ($dictationSnapshot) { $dictationSnapshot.StartTimeUtc } else { $null }); files = $dictationFiles; oldVersion = (Get-Item -LiteralPath (Join-Path $dictationInstalled 'MarsinDictation.App.dll')).VersionInfo.FileVersion } |
         ConvertTo-Json -Depth 3 | Set-Content -LiteralPath (Join-Path $dictationBackup 'manifest.json')
 }
 # Tray apps may have no main window: try graceful close, then stop only the verified PID.
-if ($dictationProcess) {
+Confirm-DictationUpdateProcessSnapshot -Snapshot $dictationSnapshot -Inventory @(Get-DictationUpdateProcessInventory) -InstalledExe $dictationExe
+if ($dictationSnapshot) {
+    $dictationProcess = Get-Process -Id $dictationSnapshot.ProcessId -ErrorAction Stop
     $null = $dictationProcess.CloseMainWindow()
-    if (!$dictationProcess.WaitForExit(3000)) { Stop-Process -Id $ExpectedProcessId; $dictationProcess.WaitForExit() }
+    if (!$dictationProcess.WaitForExit(3000)) {
+        Confirm-DictationUpdateProcessSnapshot -Snapshot $dictationSnapshot -Inventory @(Get-DictationUpdateProcessInventory) -InstalledExe $dictationExe
+        Stop-Process -InputObject $dictationProcess
+        $dictationProcess.WaitForExit()
+    }
 }
+# A previously closed/stopped app must not have been launched concurrently before file copying.
+Confirm-DictationUpdateProcessSnapshot -Snapshot $null -Inventory @(Get-DictationUpdateProcessInventory) -InstalledExe $dictationExe
 try {
     foreach ($dictationName in $dictationFiles) {
         $dictationSource = Join-Path $(if ($Rollback) { $dictationBackup } else { $dictationPublish }) $dictationName
