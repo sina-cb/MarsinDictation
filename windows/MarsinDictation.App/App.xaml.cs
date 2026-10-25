@@ -9,6 +9,7 @@ using MarsinDictation.Core.Hotkey;
 using MarsinDictation.Core.History;
 using MarsinDictation.Core.Settings;
 using MarsinDictation.Core.Transcription;
+using MarsinDictation.Core.Api;
 
 namespace MarsinDictation.App;
 
@@ -35,6 +36,8 @@ public partial class App : Application
     private ITranscriptionClient? _transcriptionClient;
     private MarsinDictation.Core.Injection.SendInputInjector? _injector;
     private string? _lastTranscription;
+    private LocalTranscriptionApi? _localApi;
+    private WhisperTranscriptionClient? _apiWhisperClient;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -175,6 +178,32 @@ public partial class App : Application
             }
         }
 
+
+        // The API always uses the embedded backend, independently of the desktop provider.
+        // Reuse the same client/gate when desktop dictation is embedded; never route API audio to cloud.
+        var apiModelName = _settingsManager.Settings.WhisperModel;
+        var bundledApiModel = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, apiModelName);
+        var apiModelPath = File.Exists(bundledApiModel) ? bundledApiModel
+            : Path.Combine(_settingsManager.Settings.WhisperModelDir, apiModelName);
+        bool apiModelAvailable = File.Exists(apiModelPath);
+        _apiWhisperClient = _transcriptionClient as WhisperTranscriptionClient;
+        if (_apiWhisperClient is null && apiModelAvailable)
+        {
+            _apiWhisperClient = new WhisperTranscriptionClient(apiModelPath, _settingsManager.Settings.Language);
+            _ = Task.Run(() =>
+            {
+                try { _apiWhisperClient.LoadModel(); }
+                catch { logger.LogWarning("Local transcription API embedded model failed to load"); }
+            });
+        }
+        var apiVersion = typeof(App).Assembly.GetName().Version?.ToString() ?? "unknown";
+        _localApi = new LocalTranscriptionApi(
+            (wav, ct) => _apiWhisperClient?.TryTranscribeAsync(wav, ct)
+                ?? Task.FromResult<TranscriptionResult?>(new(false, null, "embedded model unavailable")),
+            () => _apiWhisperClient?.IsModelLoaded == true,
+            apiModelAvailable, apiModelName, _settingsManager.Settings.Language, apiVersion);
+        if (_localApi.TryStart()) logger.LogInformation("Local transcription API listening on loopback port {Port}", LocalTranscriptionApi.DefaultPort);
+        else logger.LogWarning("Local transcription API unavailable; dictation remains enabled");
 
         _dictationService = new DictationService(_loggerFactory.CreateLogger<DictationService>());
         _audioRecorder = new AudioRecorder(_loggerFactory.CreateLogger<AudioRecorder>());
@@ -445,11 +474,13 @@ public partial class App : Application
 
     private void DoShutdown()
     {
+        _localApi?.Dispose();
         _audioRecorder?.Dispose();
         _audioPlayer?.Dispose();
         _hotkeyManager?.Dispose();
         _trayController?.Dispose();
         (_transcriptionClient as IDisposable)?.Dispose();
+        if (!ReferenceEquals(_apiWhisperClient, _transcriptionClient)) _apiWhisperClient?.Dispose();
         _statusWindow?.Close();
         _loggerFactory?.Dispose();
         Shutdown();

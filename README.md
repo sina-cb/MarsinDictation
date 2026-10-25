@@ -81,6 +81,22 @@ If you cannot use OpenAI on your machine due to network or policy restrictions, 
 3. Download a Whisper model to your LocalAI `models` directory.
 4. Ensure `LOCALAI_ENDPOINT` points to `http://localhost:3850`.
 
+## Windows local transcription API
+
+The Windows app serves embedded Whisper on `http://127.0.0.1:6976` while running.
+`GET /health` reports readiness, API/app version, local backend, model basename and language.
+`POST /transcribe` accepts raw `Content-Type: audio/wav` with Content-Length: 16 kHz,
+16-bit PCM mono WAV, at most 4 MiB and 120 seconds. It returns JSON
+`{text, backend, model, language, version}`. Decode m4a/webm to that WAV format before uploading.
+
+This API uses the existing embedded model, even when the desktop provider is cloud.
+It never injects text, downloads a model, accepts a file path, retains uploaded audio or calls
+a hosted provider. One API request is admitted; busy inference returns 429, unavailable model
+returns 503, invalid WAV returns 400, and no recognized speech returns 422.
+Browser Origin headers and cross-site requests are rejected, with no CORS allowance.
+Use a native localhost client. A port collision disables the API while dictation continues.
+Hotkey and API inference share the same model/gate when embedded is selected.
+
 ## Key Features
 
 - **System-Wide Dictation** — Dictate into any text field in most standard apps. Hold the hotkey to record, release to transcribe and inject.

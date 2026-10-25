@@ -7,10 +7,16 @@ namespace MarsinDictation.Core.Transcription;
 /// </summary>
 public sealed class WhisperTranscriptionClient : ITranscriptionClient, IDisposable
 {
-    private WhisperProcessor? _processor;
+    private volatile WhisperProcessor? _processor;
     private WhisperFactory? _factory;
     private readonly string _modelPath;
     private readonly string _language;
+    // Whisper.net/native runtime initialization is process-wide; serialize model creation too.
+    private static readonly object NativeModelLock = new();
+    private readonly SemaphoreSlim _inferenceGate = new(1, 1);
+    private volatile bool _disposed;
+
+    public bool IsModelLoaded => !_disposed && _processor != null;
 
     public WhisperTranscriptionClient(string modelPath, string language = "en")
     {
@@ -23,6 +29,9 @@ public sealed class WhisperTranscriptionClient : ITranscriptionClient, IDisposab
     /// </summary>
     public void LoadModel()
     {
+        lock (NativeModelLock)
+        {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         if (_processor != null) return;
         
         if (!File.Exists(_modelPath))
@@ -33,10 +42,29 @@ public sealed class WhisperTranscriptionClient : ITranscriptionClient, IDisposab
             .WithLanguage(_language)
             .WithThreads(Math.Max(Environment.ProcessorCount / 2, 2))
             .Build();
+        }
     }
 
     public async Task<TranscriptionResult> TranscribeAsync(byte[] wavData, CancellationToken ct = default)
     {
+        await _inferenceGate.WaitAsync(ct).ConfigureAwait(false);
+        // Whisper.net's own async iterator may capture its caller's context internally.
+        // Enter it on the pool so synchronous UI Quit/Dispose never blocks that continuation.
+        try { return await Task.Run(() => TranscribeCoreAsync(wavData, ct), ct).ConfigureAwait(false); }
+        finally { _inferenceGate.Release(); }
+    }
+
+    // API work must never build an inference queue or overlap desktop dictation.
+    public async Task<TranscriptionResult?> TryTranscribeAsync(byte[] wavData, CancellationToken ct = default)
+    {
+        if (!await _inferenceGate.WaitAsync(0, ct).ConfigureAwait(false)) return null;
+        try { return await Task.Run(() => TranscribeCoreAsync(wavData, ct), ct).ConfigureAwait(false); }
+        finally { _inferenceGate.Release(); }
+    }
+
+    private async Task<TranscriptionResult> TranscribeCoreAsync(byte[] wavData, CancellationToken ct)
+    {
+        if (_disposed) return new TranscriptionResult(false, null, "Whisper client disposed");
         // Lazy load for simplicity, though the app can explicitly call LoadModel() during startup to avoid lag
         if (_processor is null)
         {
@@ -59,7 +87,7 @@ public sealed class WhisperTranscriptionClient : ITranscriptionClient, IDisposab
 
             // Run inference
             var segments = new List<string>();
-            await foreach (var segment in _processor!.ProcessAsync(resampledStream, ct))
+            await foreach (var segment in _processor!.ProcessAsync(resampledStream, ct).ConfigureAwait(false))
             {
                 segments.Add(segment.Text);
             }
@@ -78,7 +106,19 @@ public sealed class WhisperTranscriptionClient : ITranscriptionClient, IDisposab
 
     public void Dispose()
     {
+        _inferenceGate.Wait();
+        try
+        {
+        lock (NativeModelLock)
+        {
+        if (_disposed) return;
+        _disposed = true;
         _processor?.Dispose();
         _factory?.Dispose();
+        _processor = null;
+        _factory = null;
+        }
+        }
+        finally { _inferenceGate.Release(); }
     }
 }
