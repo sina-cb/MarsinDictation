@@ -53,7 +53,7 @@ Options:
 
 ### Design Principles
 
-Inspired by the MarsinLED `deploy.py` pattern:
+Design principles:
 
 - **Single entry point** — one script for all platforms, dispatched by first argument
 - **Phased execution** — prerequisites → build → install, each phase logged and tracked
@@ -138,4 +138,4 @@ All build artifacts must be gitignored. Platform-specific output locations:
 ## Placeholder Note
 
 > [!NOTE]
-> The `devtool/deploy.py` script is implemented with Windows support. macOS, iOS, and Android handlers are placeholder stubs. The script follows the patterns established in the MarsinLED `deploy.py` (argparse-based CLI, phased execution, colored output, result summary).
+> The `devtool/deploy.py` script is implemented with Windows and macOS support. iOS and Android handlers are placeholder stubs. The script uses argparse-based CLI dispatch, phased execution, colored output, and result summaries.

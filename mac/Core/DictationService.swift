@@ -41,7 +41,6 @@ public class DictationService: HotkeyDelegate, AudioCaptureDelegate {
         hotkeyManager.startMonitoring()
     }
     
-    /// Load the embedded whisper model if the provider is set to embedded.
     private func loadWhisperModelIfNeeded() {
         let sm = SettingsManager.shared
         guard sm.provider == "embedded" else { return }
@@ -50,13 +49,12 @@ public class DictationService: HotkeyDelegate, AudioCaptureDelegate {
         let modelName = sm.whisperModel
         
         guard modelManager.isModelAvailable(modelName) else {
-            print("[DictationService] ⚠️ Embedded model '\(modelName)' not found. Download it first.")
-            print("[DictationService] Expected at: \(modelManager.modelURL(for: modelName).path)")
+            print("[DictationService] ❌ Embedded model '\(modelName)' not found in bundle or Application Support")
             return
         }
         
-        let client = WhisperTranscriptionClient(modelURL: modelManager.modelURL(for: modelName))
         do {
+            let client = WhisperTranscriptionClient(modelURL: modelManager.modelURL(for: modelName))
             try client.loadModel()
             self.whisperClient = client
             print("[DictationService] ✅ Embedded whisper model loaded")

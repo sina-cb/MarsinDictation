@@ -34,6 +34,24 @@ import sys
 import time
 from pathlib import Path
 
+# ── Load .env (shell env vars take precedence) ───────────────
+def _load_dotenv():
+    env_path = Path(__file__).resolve().parent.parent / ".env"
+    if not env_path.exists():
+        return
+    for line in env_path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key, value = key.strip(), value.strip()
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+_load_dotenv()
+
 # Force UTF-8 for Windows CI runners
 if sys.stdout.encoding and sys.stdout.encoding.lower() != 'utf-8':
     sys.stdout.reconfigure(encoding='utf-8')
@@ -736,6 +754,37 @@ def deploy_mac(args):
     d = args.dry_run
     config = "Release"  # Always use Release for macOS (avoids duplicate Spotlight entries)
 
+    # --clean: uninstall app and remove all data
+    if getattr(args, 'clean', False):
+        import shutil as sh_clean
+        info("Cleaning MarsinDictation...")
+        subprocess.run(["killall", "MarsinDictation"], capture_output=True)
+        targets = [
+            Path("/Applications/MarsinDictation.app"),
+            Path.home() / "Library" / "Application Support" / "MarsinDictation",
+            Path.home() / "Library" / "Caches" / "com.marsinhq.MarsinDictation",
+            Path.home() / "Library" / "Preferences" / "com.marsinhq.MarsinDictation.plist",
+        ]
+        for t in targets:
+            if t.exists():
+                if t.is_dir():
+                    sh_clean.rmtree(str(t))
+                else:
+                    t.unlink()
+                ok(f"Removed {t}")
+        # Clean DerivedData
+        dd = Path.home() / "Library" / "Developer" / "Xcode" / "DerivedData"
+        if dd.exists():
+            for p in dd.iterdir():
+                if p.name.startswith("MarsinDictation-"):
+                    sh_clean.rmtree(str(p))
+                    ok(f"Removed DerivedData: {p.name}")
+        # Reset preferences
+        subprocess.run(["defaults", "delete", "com.marsinhq.MarsinDictation"], capture_output=True)
+        ok("Reset preferences")
+        ok("Clean complete")
+        return print_summary(start)
+
     # Step 1: Check prerequisites
     run_step("Check Xcode CLI tools", ["xcodebuild", "-version"], dry_run=d, verbose=v)
 
@@ -769,10 +818,31 @@ def deploy_mac(args):
             "-project", str(xcodeproj),
             "-scheme", "MarsinDictation",
             "-configuration", config,
-            "CODE_SIGN_IDENTITY=-",
-            "CODE_SIGNING_ALLOWED=YES",
-            "build"
+            "build",
+            "ARCHS=x86_64 arm64",        # Universal binary (Intel + Apple Silicon)
+            "ONLY_ACTIVE_ARCH=NO",        # Build both architectures
         ]
+
+        apple_team_id = os.environ.get("APPLE_TEAM_ID")
+        if getattr(args, 'local_sign', False):
+            info("Using ad-hoc signing (--local-sign)")
+            build_cmd.extend([
+                "CODE_SIGN_IDENTITY=-",
+                "CODE_SIGNING_ALLOWED=YES",
+            ])
+        elif apple_team_id:
+            info(f"Team ID {apple_team_id} detected, enabling Developer ID code signing...")
+            build_cmd.extend([
+                f"DEVELOPMENT_TEAM={apple_team_id}",
+                "CODE_SIGN_STYLE=Manual",
+                "CODE_SIGN_IDENTITY=Developer ID Application",
+                "ENABLE_HARDENED_RUNTIME=YES",
+                "OTHER_CODE_SIGN_FLAGS=--timestamp",
+                "CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO"
+            ])
+        else:
+            # No --local-sign and no APPLE_TEAM_ID: let Local.xcconfig handle signing
+            info("Using signing config from Local.xcconfig (set --local-sign to skip)")
         build_ok = run_step(f"Build ({config})", build_cmd, cwd=MAC_DIR, dry_run=d, verbose=v)
         if not build_ok:
             return print_summary(start)
@@ -790,6 +860,9 @@ def deploy_mac(args):
         if not app_dir:
             fail("Could not find built MarsinDictation.app in DerivedData")
             return print_summary(start)
+
+        # We'll clean up DerivedData after copying .app to staging (see below)
+        derived_data_dir = app_dir.parent.parent.parent.parent  # MarsinDictation-xxx/
 
         # Create staging directory for DMG contents
         import shutil
@@ -810,6 +883,9 @@ def deploy_mac(args):
                 shutil.copytree(str(app_dir), str(dst_app))
                 ok(f"App bundle staged")
 
+                # Delete DerivedData to prevent duplicate in Spotlight/Launchpad
+                shutil.rmtree(str(derived_data_dir), ignore_errors=True)
+
             # Bundle .env into app Resources (so installed app finds API keys)
             env_src = ROOT / ".env"
             if env_src.exists() and not d:
@@ -818,6 +894,29 @@ def deploy_mac(args):
                 ok("Bundled .env into app Resources")
             elif not env_src.exists():
                 warn("No .env file found — installed app will need configuration")
+
+            # Bundle Whisper model into app Resources (so DMG ships with model)
+            model_cache = ROOT / "tmp" / "models"
+            if model_cache.exists() and not d:
+                resources_dir = dst_app / "Contents" / "Resources"
+                for model_file in model_cache.glob("*.bin"):
+                    model_dst = resources_dir / model_file.name
+                    shutil.copy2(str(model_file), str(model_dst))
+                    size_mb = model_file.stat().st_size // (1024 * 1024)
+                    ok(f"Bundled model: {model_file.name} ({size_mb} MB)")
+
+            # Re-sign the app after adding files (bundling invalidates the signature)
+            if apple_team_id and not d:
+                entitlements_path = MAC_DIR / "MarsinDictation.entitlements"
+                resign_cmd = [
+                    "codesign", "--force", "--deep", "--sign", "Developer ID Application",
+                    "--options", "runtime",
+                    "--timestamp",
+                ]
+                if entitlements_path.exists():
+                    resign_cmd.extend(["--entitlements", str(entitlements_path)])
+                resign_cmd.append(str(dst_app))
+                run_step("Re-sign app bundle", resign_cmd, dry_run=d, verbose=v)
 
             # Create /Applications symlink
             if not d:
@@ -840,6 +939,68 @@ def deploy_mac(args):
                 "-format", "UDZO"  # compressed DMG
             ]
             run_step("Create DMG", dmg_cmd, dry_run=d, verbose=v)
+
+            # Notarization
+            apple_email = os.environ.get("APPLE_ID_EMAIL")
+            apple_app_password = os.environ.get("APPLE_APP_SPECIFIC_PASSWORD")
+            if apple_email and apple_app_password and apple_team_id and not d:
+                info("Submitting DMG for notarization...")
+                notary_cmd = [
+                    "xcrun", "notarytool", "submit",
+                    str(dmg_output),
+                    "--apple-id", apple_email,
+                    "--password", apple_app_password,
+                    "--team-id", apple_team_id,
+                    "--wait", "--output-format", "json"
+                ]
+                try:
+                    import json as _json
+                    notary_result = subprocess.run(notary_cmd, capture_output=True, text=True)
+                    print(notary_result.stdout)
+                    if notary_result.stderr:
+                        print(notary_result.stderr)
+
+                    # Parse submission ID and status
+                    try:
+                        notary_json = _json.loads(notary_result.stdout)
+                        submission_id = notary_json.get("id", "")
+                        status = notary_json.get("status", "")
+                    except Exception:
+                        submission_id = ""
+                        status = ""
+
+                    if status == "Accepted":
+                        ok("Notarization accepted")
+                        results.append(("Notarize DMG", "ok"))
+                    else:
+                        fail(f"Notarization status: {status}")
+                        results.append(("Notarize DMG", "FAIL"))
+                        # Fetch the notarization log to see WHY it failed
+                        if submission_id:
+                            info(f"Fetching notarization log for submission {submission_id}...")
+                            log_cmd = [
+                                "xcrun", "notarytool", "log",
+                                submission_id,
+                                "--apple-id", apple_email,
+                                "--password", apple_app_password,
+                                "--team-id", apple_team_id,
+                            ]
+                            log_result = subprocess.run(log_cmd, capture_output=True, text=True)
+                            print("\n=== NOTARIZATION LOG ===")
+                            print(log_result.stdout)
+                            if log_result.stderr:
+                                print(log_result.stderr)
+                            print("=== END LOG ===")
+                        return print_summary(start)
+                except Exception as e:
+                    fail(f"Notarization error: {e}")
+                    results.append(("Notarize DMG", "FAIL"))
+                    return print_summary(start)
+
+                staple_cmd = [
+                    "xcrun", "stapler", "staple", str(dmg_output)
+                ]
+                run_step("Staple Notarization Ticket", staple_cmd, dry_run=d, verbose=v)
 
             # Also install directly to /Applications if not purely packaging
             if not d and not args.package:
@@ -875,8 +1036,6 @@ def deploy_mac(args):
             "-project", str(xcodeproj),
             "-scheme", "MarsinDictation",
             "-configuration", config,
-            "CODE_SIGN_IDENTITY=-",
-            "CODE_SIGNING_ALLOWED=YES",
             "build"
         ]
         run_step(f"Build ({config})", build_cmd, cwd=MAC_DIR, dry_run=d, verbose=v)
@@ -899,8 +1058,6 @@ def deploy_mac(args):
             "-project", str(xcodeproj),
             "-scheme", "MarsinDictation",
             "-configuration", config,
-            "CODE_SIGN_IDENTITY=-",
-            "CODE_SIGNING_ALLOWED=YES",
             "build"
         ]
         run_step(f"Build ({config})", build_cmd, cwd=MAC_DIR, dry_run=d, verbose=v)
@@ -971,6 +1128,10 @@ def main():
     parser.add_argument("--release", action="store_true", help="Release build (default: Debug)")
     parser.add_argument("--verbose", action="store_true", help="Show full build output")
     parser.add_argument("--dry-run", action="store_true", help="Show steps without executing")
+    parser.add_argument("--local-sign", action="store_true",
+                       help="macOS: use ad-hoc signing (no Apple Developer certificate needed)")
+    parser.add_argument("--clean", action="store_true",
+                       help="macOS: uninstall app and remove all data (models, prefs, caches)")
 
     args = parser.parse_args()
 
