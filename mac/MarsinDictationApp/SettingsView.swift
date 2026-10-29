@@ -1,10 +1,14 @@
 import SwiftUI
+import AppKit
+import ApplicationServices
 
 struct SettingsView: View {
     @ObservedObject private var settings = SettingsManager.shared
     @State private var showSaved = false
+    @State private var autoPasteEnabled = AXIsProcessTrusted()
     
     var body: some View {
+        ScrollView {
         VStack(alignment: .leading, spacing: 0) {
             // Header
             HStack {
@@ -17,6 +21,22 @@ struct SettingsView: View {
             }
             .padding(.bottom, 20)
             
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Auto-Paste").font(.headline)
+                Label(autoPasteEnabled ? "Accessibility access granted" : "Accessibility access needed",
+                      systemImage: autoPasteEnabled ? "checkmark.circle.fill" : "exclamationmark.triangle")
+                    .foregroundColor(autoPasteEnabled ? .green : .secondary)
+                if !autoPasteEnabled {
+                    Text("Enable MarsinDictation in System Settings to paste dictation at your cursor. Until then, press ⌘V.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button("Enable Auto-Paste…") { AutoPastePermission.request(openSettings: true) }
+                }
+            }
+            .padding(.bottom, 16)
+            Divider().padding(.bottom, 12)
+
             // Audio Ducking
             VStack(alignment: .leading, spacing: 10) {
                 Text("Audio Ducking")
@@ -60,11 +80,12 @@ struct SettingsView: View {
                         .font(.headline)
                     
                     LabeledField(label: "Model file", text: $settings.whisperModel,
-                                placeholder: "ggml-large-v3-turbo-q5_0.bin")
+                                placeholder: "ggml-base.en.bin")
                     
-                    Text("Model is stored in ~/Library/Application Support/MarsinDictation/models/")
+                    Text("Missing models download automatically from Hugging Face. Changes apply on your next dictation. Models are stored in ~/Library/Application Support/MarsinDictation/models/.")
                         .font(.caption)
                         .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(.bottom, 16)
             } else if settings.provider == "localai" {
@@ -147,8 +168,6 @@ struct SettingsView: View {
             }
             .padding(.bottom, 16)
             
-            Spacer()
-            
             // Status
             HStack {
                 if showSaved {
@@ -164,7 +183,13 @@ struct SettingsView: View {
             }
         }
         .padding(24)
-        .frame(width: 420, height: 520)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+        .frame(minWidth: 460, idealWidth: 480, minHeight: 400, idealHeight: 620)
+        .onAppear { autoPasteEnabled = AXIsProcessTrusted() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            autoPasteEnabled = AXIsProcessTrusted()
+        }
         .onChange(of: settings.provider) { _ in flashSaved() }
         .onChange(of: settings.language) { _ in flashSaved() }
         .onChange(of: settings.localAIEndpoint) { _ in flashSaved() }

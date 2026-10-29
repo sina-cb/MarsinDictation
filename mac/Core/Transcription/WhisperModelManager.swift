@@ -1,76 +1,88 @@
 import Foundation
 
-/// Manages the Whisper GGML model file location and download.
-public class WhisperModelManager {
+/// Downloads missing models to Application Support, publishing only complete GGML files.
+public final class WhisperModelManager {
     public static let shared = WhisperModelManager()
-    
-    /// Base URL for downloading GGML models from Hugging Face
-    private let huggingFaceBaseURL = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main"
-    
-    /// Directory where models are stored
-    public var modelsDirectory: URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let dir = appSupport.appendingPathComponent("MarsinDictation/models", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir
+    private let directory: URL
+    private let baseURL: URL
+    private let session: URLSession
+
+    public var modelsDirectory: URL { directory }
+
+    init(directory: URL? = nil,
+         baseURL: URL = URL(string: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main")!,
+         session: URLSession = .shared) {
+        self.directory = directory ?? FileManager.default.urls(for: .applicationSupportDirectory,
+            in: .userDomainMask).first!.appendingPathComponent("MarsinDictation/models", isDirectory: true)
+        self.baseURL = baseURL
+        self.session = session
     }
-    
-    private init() {}
-    
-    /// Full path to the model file — checks bundle Resources first, then Application Support
+
     public func modelURL(for modelName: String) -> URL {
-        // Check if model is bundled in app Resources
-        if let bundledURL = Bundle.main.url(forResource: (modelName as NSString).deletingPathExtension,
-                                            withExtension: (modelName as NSString).pathExtension) {
-            return bundledURL
+        if let bundled = Bundle.main.url(forResource: (modelName as NSString).deletingPathExtension,
+                                         withExtension: (modelName as NSString).pathExtension) {
+            return bundled
         }
-        return modelsDirectory.appendingPathComponent(modelName)
+        return directory.appendingPathComponent(modelName)
     }
-    
-    /// Check if a model file exists (in bundle or Application Support)
+
     public func isModelAvailable(_ modelName: String) -> Bool {
-        // Check bundle first
-        if Bundle.main.url(forResource: (modelName as NSString).deletingPathExtension,
-                           withExtension: (modelName as NSString).pathExtension) != nil {
-            return true
-        }
-        return FileManager.default.fileExists(atPath: modelsDirectory.appendingPathComponent(modelName).path)
+        (try? validateModel(at: modelURL(for: modelName))) != nil
     }
-    
-    /// Download a model file from Hugging Face with progress reporting.
-    /// - Parameters:
-    ///   - modelName: The GGML model filename (e.g. "ggml-large-v3-turbo-q5_0.bin")
-    ///   - progress: Called with (bytesDownloaded, totalBytes) during download
-    /// - Returns: Local URL of the downloaded model
-    public func downloadModel(
-        _ modelName: String,
-        progress: @escaping (Int64, Int64) -> Void
-    ) async throws -> URL {
-        let remoteURL = URL(string: "\(huggingFaceBaseURL)/\(modelName)")!
-        let localURL = modelURL(for: modelName)
-        
-        // If already exists, return immediately
-        if FileManager.default.fileExists(atPath: localURL.path) {
-            print("[WhisperModelManager] Model already exists at \(localURL.path)")
-            return localURL
+
+    /// Rejects empty/HTML/partial-header downloads before handing them to the native engine.
+    private func validateModel(at url: URL) throws {
+        let file = try FileHandle(forReadingFrom: url)
+        defer { try? file.close() }
+        let header = try file.read(upToCount: 4)
+        let size = try file.seekToEnd()
+        guard header == Data([0x6c, 0x6d, 0x67, 0x67]), size > 1024 else {
+            throw TranscriptionError.apiError("Invalid speech model. Retry the download.")
         }
-        
-        print("[WhisperModelManager] Downloading \(modelName) from \(remoteURL)...")
-        
-        let (tempURL, response) = try await URLSession.shared.download(from: remoteURL, delegate: nil)
-        
-        guard let httpResponse = response as? HTTPURLResponse,
-              (200...299).contains(httpResponse.statusCode) else {
-            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
-            throw TranscriptionError.apiError("Model download failed with HTTP \(statusCode)")
-        }
-        
-        // Move to final location
-        try FileManager.default.moveItem(at: tempURL, to: localURL)
-        
-        let fileSize = try FileManager.default.attributesOfItem(atPath: localURL.path)[.size] as? Int64 ?? 0
-        print("[WhisperModelManager] ✅ Model downloaded: \(localURL.lastPathComponent) (\(fileSize / 1_000_000) MB)")
-        
-        return localURL
     }
+
+    public func downloadModel(_ modelName: String,
+                              progress: @escaping (Int64, Int64) -> Void) async throws -> URL {
+        guard !modelName.isEmpty, modelName == (modelName as NSString).lastPathComponent,
+              modelName.hasPrefix("ggml-"), modelName.hasSuffix(".bin"),
+              modelName.unicodeScalars.allSatisfy({ CharacterSet(charactersIn:
+                "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.").contains($0) }) else {
+            throw TranscriptionError.apiError("Use a GGML model filename, not a path or URL.")
+        }
+        let destination = modelURL(for: modelName)
+        if isModelAvailable(modelName) { return destination }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let delegate = ModelDownloadProgress(progress: progress)
+        let (temporary, response) = try await session.download(
+            from: baseURL.appendingPathComponent(modelName), delegate: delegate)
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            throw TranscriptionError.apiError("Model download failed (HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)). Try again.")
+        }
+        try validateModel(at: temporary)
+        // Replace a corrupt cached file only after a successful, validated download.
+        if FileManager.default.fileExists(atPath: destination.path) {
+            _ = try FileManager.default.replaceItemAt(destination, withItemAt: temporary)
+        } else {
+            try FileManager.default.moveItem(at: temporary, to: destination)
+        }
+        return destination
+    }
+}
+
+private final class ModelDownloadProgress: NSObject, URLSessionDownloadDelegate {
+    private var lastUnit: Int64 = -1
+    let progress: (Int64, Int64) -> Void
+    init(progress: @escaping (Int64, Int64) -> Void) { self.progress = progress }
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
+                    didWriteData bytesWritten: Int64, totalBytesWritten: Int64,
+                    totalBytesExpectedToWrite: Int64) {
+        let unit = totalBytesExpectedToWrite > 0
+            ? totalBytesWritten * 100 / totalBytesExpectedToWrite : totalBytesWritten / 1_000_000
+        guard unit != lastUnit else { return }
+        lastUnit = unit
+        progress(totalBytesWritten, totalBytesExpectedToWrite)
+    }
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
+                    didFinishDownloadingTo location: URL) {}
 }

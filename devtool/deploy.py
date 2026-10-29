@@ -548,6 +548,28 @@ def deploy_windows(args):
             do_run(config, d, hold=args.hold)
         return code
 
+def notarize_mac_artifact(artifact, apple_email, apple_password, apple_team_id):
+    """Fail closed: success requires Apple acceptance and a validated stapled ticket.
+
+    Credentials are passed directly to notarytool, never through the command logger.
+    """
+    import json
+    auth = ["--apple-id", apple_email, "--password", apple_password, "--team-id", apple_team_id]
+    submission = subprocess.run(["xcrun", "notarytool", "submit", str(artifact), *auth,
+                                 "--wait", "--output-format", "json"], capture_output=True, text=True)
+    try:
+        response = json.loads(submission.stdout)
+    except (ValueError, TypeError):
+        fail("Notarization did not return valid JSON")
+        return False
+    if submission.returncode != 0 or response.get("status") != "Accepted":
+        fail(f"Notarization failed: {response.get('status', 'unknown')} (submission {response.get('id', 'unknown')})")
+        return False
+    ok(f"Notarization accepted: {response.get('id', '')}")
+    return (run_step("Staple Notarization Ticket", ["xcrun", "stapler", "staple", str(artifact)])
+            and run_step("Validate Notarization Ticket", ["xcrun", "stapler", "validate", str(artifact)]))
+
+
 # ── Install ───────────────────────────────────────────────────
 INSTALL_DIR = Path(os.environ.get("PROGRAMFILES", r"C:\Program Files")) / "MarsinDictation"
 EXE_NAME = "MarsinDictation.App.exe"
@@ -731,6 +753,15 @@ def deploy_mac(args):
         ok("Clean complete")
         return print_summary(start)
 
+    local_sign = getattr(args, 'local_sign', False)
+    signed_package = (args.install or args.package) and not local_sign
+    if signed_package:
+        required = ("APPLE_TEAM_ID", "APPLE_ID_EMAIL", "APPLE_APP_SPECIFIC_PASSWORD")
+        missing = [name for name in required if not os.environ.get(name)]
+        if missing:
+            fail("Signed packaging requires: " + ", ".join(missing) + ". Use --local-sign for a development-only package.")
+            return 1
+
     # Step 1: Check prerequisites
     run_step("Check Xcode CLI tools", ["xcodebuild", "-version"], dry_run=d, verbose=v)
 
@@ -759,8 +790,10 @@ def deploy_mac(args):
 
     if args.install or args.package:
         # --install or --package: build + create DMG installer (always Release, set above)
+        package_build_dir = ROOT / "tmp" / "mac-build"
         build_cmd = [
             "xcodebuild",
+            "-derivedDataPath", str(package_build_dir),
             "-project", str(xcodeproj),
             "-scheme", "MarsinDictation",
             "-configuration", config,
@@ -793,22 +826,10 @@ def deploy_mac(args):
         if not build_ok:
             return print_summary(start)
 
-        # Find the built .app
-        derived_data = Path.home() / "Library" / "Developer" / "Xcode" / "DerivedData"
-        app_dir = None
-        for p in derived_data.iterdir():
-            if p.name.startswith("MarsinDictation-"):
-                candidate = p / "Build" / "Products" / config / "MarsinDictation.app"
-                if candidate.exists():
-                    app_dir = candidate
-                    break
-
-        if not app_dir:
-            fail("Could not find built MarsinDictation.app in DerivedData")
-            return print_summary(start)
-
-        # We'll clean up DerivedData after copying .app to staging (see below)
-        derived_data_dir = app_dir.parent.parent.parent.parent  # MarsinDictation-xxx/
+        app_dir = package_build_dir / "Build" / "Products" / config / "MarsinDictation.app"
+        if not d and not app_dir.exists():
+            fail("Could not find the app in the package build directory")
+            return 1
 
         # Create staging directory for DMG contents
         import shutil
@@ -829,17 +850,7 @@ def deploy_mac(args):
                 shutil.copytree(str(app_dir), str(dst_app))
                 ok(f"App bundle staged")
 
-                # Delete DerivedData to prevent duplicate in Spotlight/Launchpad
-                shutil.rmtree(str(derived_data_dir), ignore_errors=True)
-
-            # Bundle .env into app Resources (so installed app finds API keys)
-            env_src = ROOT / ".env"
-            if env_src.exists() and not d:
-                env_dst = dst_app / "Contents" / "Resources" / ".env"
-                shutil.copy2(str(env_src), str(env_dst))
-                ok("Bundled .env into app Resources")
-            elif not env_src.exists():
-                warn("No .env file found — installed app will need configuration")
+            # Distribution packages must never embed developer .env files or API keys.
 
             # Bundle Whisper model into app Resources (so DMG ships with model)
             model_cache = ROOT / "tmp" / "models"
@@ -852,17 +863,21 @@ def deploy_mac(args):
                     ok(f"Bundled model: {model_file.name} ({size_mb} MB)")
 
             # Re-sign the app after adding files (bundling invalidates the signature)
-            if apple_team_id and not d:
+            if not d:
                 entitlements_path = MAC_DIR / "MarsinDictation.entitlements"
                 resign_cmd = [
-                    "codesign", "--force", "--deep", "--sign", "Developer ID Application",
-                    "--options", "runtime",
-                    "--timestamp",
+                    "codesign", "--force", "--deep", "--sign",
+                    "-" if local_sign else "Developer ID Application",
                 ]
+                if not local_sign:
+                    resign_cmd.extend(["--options", "runtime", "--timestamp"])
                 if entitlements_path.exists():
                     resign_cmd.extend(["--entitlements", str(entitlements_path)])
                 resign_cmd.append(str(dst_app))
-                run_step("Re-sign app bundle", resign_cmd, dry_run=d, verbose=v)
+                if not run_step("Re-sign app bundle", resign_cmd, verbose=v):
+                    return 1
+                if not run_step("Verify app signature", ["codesign", "--verify", "--deep", "--strict", str(dst_app)], verbose=v):
+                    return 1
 
             # Create /Applications symlink
             if not d:
@@ -884,69 +899,18 @@ def deploy_mac(args):
                 "-ov",
                 "-format", "UDZO"  # compressed DMG
             ]
-            run_step("Create DMG", dmg_cmd, dry_run=d, verbose=v)
+            if not run_step("Create DMG", dmg_cmd, dry_run=d, verbose=v):
+                return 1
 
-            # Notarization
-            apple_email = os.environ.get("APPLE_ID_EMAIL")
-            apple_app_password = os.environ.get("APPLE_APP_SPECIFIC_PASSWORD")
-            if apple_email and apple_app_password and apple_team_id and not d:
-                info("Submitting DMG for notarization...")
-                notary_cmd = [
-                    "xcrun", "notarytool", "submit",
-                    str(dmg_output),
-                    "--apple-id", apple_email,
-                    "--password", apple_app_password,
-                    "--team-id", apple_team_id,
-                    "--wait", "--output-format", "json"
-                ]
-                try:
-                    import json as _json
-                    notary_result = subprocess.run(notary_cmd, capture_output=True, text=True)
-                    print(notary_result.stdout)
-                    if notary_result.stderr:
-                        print(notary_result.stderr)
-
-                    # Parse submission ID and status
-                    try:
-                        notary_json = _json.loads(notary_result.stdout)
-                        submission_id = notary_json.get("id", "")
-                        status = notary_json.get("status", "")
-                    except Exception:
-                        submission_id = ""
-                        status = ""
-
-                    if status == "Accepted":
-                        ok("Notarization accepted")
-                        results.append(("Notarize DMG", "ok"))
-                    else:
-                        fail(f"Notarization status: {status}")
-                        results.append(("Notarize DMG", "FAIL"))
-                        # Fetch the notarization log to see WHY it failed
-                        if submission_id:
-                            info(f"Fetching notarization log for submission {submission_id}...")
-                            log_cmd = [
-                                "xcrun", "notarytool", "log",
-                                submission_id,
-                                "--apple-id", apple_email,
-                                "--password", apple_app_password,
-                                "--team-id", apple_team_id,
-                            ]
-                            log_result = subprocess.run(log_cmd, capture_output=True, text=True)
-                            print("\n=== NOTARIZATION LOG ===")
-                            print(log_result.stdout)
-                            if log_result.stderr:
-                                print(log_result.stderr)
-                            print("=== END LOG ===")
-                        return print_summary(start)
-                except Exception as e:
-                    fail(f"Notarization error: {e}")
-                    results.append(("Notarize DMG", "FAIL"))
-                    return print_summary(start)
-
-                staple_cmd = [
-                    "xcrun", "stapler", "staple", str(dmg_output)
-                ]
-                run_step("Staple Notarization Ticket", staple_cmd, dry_run=d, verbose=v)
+            if signed_package and not d:
+                if not run_step("Sign DMG", ["codesign", "--sign", "Developer ID Application", "--timestamp", str(dmg_output)], verbose=v):
+                    return 1
+                if not notarize_mac_artifact(dmg_output, os.environ["APPLE_ID_EMAIL"],
+                                             os.environ["APPLE_APP_SPECIFIC_PASSWORD"], apple_team_id):
+                    return 1
+                if not run_step("Assess notarized DMG", ["spctl", "--assess", "--type", "open",
+                                "--context", "context:primary-signature", "--verbose=2", str(dmg_output)], verbose=v):
+                    return 1
 
             # Also install directly to /Applications if not purely packaging
             if not d and not args.package:
@@ -957,12 +921,8 @@ def deploy_mac(args):
                 sh2.copytree(str(dst_app), str(apps_dest))
                 ok("Installed to /Applications/MarsinDictation.app")
 
-                # Reset Accessibility so it re-prompts on first launch
-                subprocess.run(
-                    ["tccutil", "reset", "Accessibility", "com.marsinhq.MarsinDictation"],
-                    capture_output=True
-                )
-                ok("Reset Accessibility — app will prompt on first launch")
+                # Preserve existing Accessibility grants for stable Developer ID signed updates.
+                # The app checks real trust and requests access itself at each launch.
 
         code = print_summary(start)
         if code == 0 and not d:

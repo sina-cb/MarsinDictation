@@ -1,12 +1,14 @@
 # MarsinDictation — macOS
 
+Native macOS dictation app. The default English speech model is `ggml-base.en.bin` (about 148 MB). At launch, a missing model downloads automatically from Hugging Face with visible progress, then loads locally. Subsequent launches work offline. Failed downloads are retried on the next dictation; partial downloads are never installed. Model filename changes apply on the next dictation without restarting. The previous `large-v3-turbo` macOS default migrates to `base.en` to match this app's bundled model and older SwiftWhisper engine. Audio stays local with the embedded provider.
+
 Native macOS dictation app. Hold **Control+Option** to record, release to transcribe and inject text at your cursor.
 
 ## Prerequisites
 
 - **Xcode** (with Command Line Tools) — `xcode-select --install`
 - **XcodeGen** — `brew install xcodegen`
-- **LocalAI** running locally (or an OpenAI API key configured in `.env`)
+- Internet access for the first model download (embedded transcription runs offline afterward)
 
 ## Quick Start
 
@@ -43,15 +45,15 @@ The app runs as a menu bar icon. Hold **Control+Option** to dictate.
 To install MarsinDictation as a proper macOS app in `/Applications`:
 
 ```bash
-python3 devtool/deploy.py mac --install
+python3 devtool/deploy.py mac --install --local-sign
 ```
 
 This will:
 1. Build a **Release** binary (ad-hoc signed)
-2. Bundle your `.env` config into the app
+2. Keep developer `.env` files and API keys out of the app bundle
 3. Create a compressed DMG at `tmp/MarsinDictation.dmg`
 4. **Install directly to `/Applications/MarsinDictation.app`**
-5. Reset Accessibility so the app prompts on first launch
+5. Preserve existing Accessibility grants; the app requests access at launch if needed
 6. Auto-open the DMG (for backup/distribution)
 
 ### Post-Install
@@ -68,7 +70,7 @@ This will:
 
 ### Updating
 
-Run `--install` again. It replaces the app in `/Applications`, resets Accessibility (you'll need to re-grant), and creates a fresh DMG.
+Run `--install` again. It replaces the app in `/Applications` and creates a fresh DMG. Existing Accessibility grants are preserved when the signing identity stays the same.
 
 ### Clean Spotlight Duplicates
 
@@ -86,7 +88,7 @@ If you change `icon.png`, regenerate the app icon:
 
 ```bash
 ./devtool/build_icon.sh
-python3 devtool/deploy.py mac --install
+python3 devtool/deploy.py mac --install --local-sign
 ```
 
 ---
@@ -130,7 +132,7 @@ The Xcode project (`.xcodeproj`) is **auto-generated** by [XcodeGen](https://git
 3. **Build the project** — the deploy script runs XcodeGen automatically:
 
    ```bash
-   python3 devtool/deploy.py mac --install
+   python3 devtool/deploy.py mac --install --local-sign
    ```
 
 > **Note:** Without `Local.xcconfig`, builds will still work but use ad-hoc signing. Xcode UI builds require `Local.xcconfig` to resolve automatic signing.
@@ -162,7 +164,7 @@ If you don't have one:
 | `--build` / default | Release, ad-hoc (`-`) | Same binary identity per build path |
 | Xcode (⌘R) | Apple Development (from `Local.xcconfig`) | Persists across builds |
 
-> **Note:** CLI builds use ad-hoc signing because macOS Keychain blocks CLI tools from accessing the Apple Development certificate's private key by default. Xcode has special keychain entitlements that bypass this. The `--install` flow compensates by running `tccutil reset Accessibility` so the app prompts cleanly on first launch.
+> **Note:** Ad-hoc builds can lose Accessibility trust when replaced. Developer ID signed distribution builds preserve a stable signing identity. The installer does not reset permissions.
 
 ---
 
@@ -179,7 +181,7 @@ The app uses the system pasteboard + synthetic Cmd+V to inject text. This requir
 
 ### After Reinstall
 
-Each `--install` resets Accessibility (new binary). You'll see "📋 ⌘V to paste" until you re-grant access. The `--install` command automatically runs `tccutil reset` to ensure a clean prompt.
+If an update changes the app's signing identity, macOS may require access again. The app requests Accessibility access at every untrusted launch; a saved prompt flag no longer suppresses the request. Use **Enable Auto-Paste…** in the menu or Settings to reopen the Accessibility pane. Enable the app in `/Applications`, then quit and reopen it.
 
 ---
 
@@ -289,3 +291,13 @@ let dictationCombo: NSEvent.ModifierFlags = [.control, .option]
 ### Changing App Settings
 
 Edit `project.yml` then regenerate with `python3 devtool/deploy.py mac --build`.
+
+## Model regression tests
+
+Run `python3 devtool/test_mac_models.py` from the repository root. Tests use a local HTTP fixture and temporary directories to verify download, offline cache reuse, corrupt-cache replacement, retry, invalid payloads, and filename validation. To include real offline transcription, set `MODEL_TEST_REAL_MODEL` to a base.en model and `MODEL_TEST_AUDIO` to a synthetic mono 16-bit PCM WAV file. Microphone capture, global hotkeys and pasting remain OS integration checks.
+
+## Signed distribution builds
+
+The `macOS validation and signed package` workflow runs regression tests and a universal Intel/Apple Silicon build on pull requests. Trusted pushes to `main` or `dev/mac-*` also build a Developer ID signed DMG, submit it to Apple, staple and validate its notarization ticket, and check Gatekeeper acceptance before uploading the installer artifact. No GitHub release or tag is created by this workflow.
+
+For signed local packaging, set `APPLE_TEAM_ID`, `APPLE_ID_EMAIL`, and `APPLE_APP_SPECIFIC_PASSWORD`, install a Developer ID Application certificate, then run `python3 devtool/deploy.py mac --package`. Missing credentials or any failed signing/notarization step stops packaging. Use `--local-sign` only for development packages, which are not notarized. Distribution packages never embed developer `.env` files.

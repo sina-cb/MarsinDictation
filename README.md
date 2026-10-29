@@ -63,7 +63,7 @@ The application reads from a `.env` file for configuration. Copy `.env.example` 
 
 This is the default. It leverages the massive `large-v3-turbo` model natively:
 1. Simply install the program. 
-2. Upon your first hotkey press, it will automatically download the 547MB quantized model securely from HuggingFace.
+2. On macOS, a missing `ggml-base.en.bin` model (about 148 MB) downloads from Hugging Face at launch with progress; failed downloads retry on the next dictation. Windows uses the larger `ggml-large-v3-turbo-q5_0.bin` model and shows its download window when missing.
 3. You immediately get locally accelerated, hyper-accurate transcription. No servers required!
 
 ### Using OpenAI (Cloud)
