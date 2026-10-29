@@ -59,7 +59,7 @@ public class SettingsManager: ObservableObject {
         static let localAIEndpoint = "http://localhost:3840"
         static let localAIModel = "whisper-large-turbo"
         static let openAIModel = "gpt-4o-mini-transcribe"
-        static let whisperModel = "ggml-large-v3-turbo-q5_0.bin"
+        static let whisperModel = "ggml-base.en.bin"
     }
     
     // MARK: - Init
@@ -93,10 +93,17 @@ public class SettingsManager: ObservableObject {
             ?? ProcessInfo.processInfo.environment["OPENAI_API_KEY"]
             ?? ""
         
-        self.whisperModel = ud.string(forKey: Keys.whisperModel)
+        let configuredModel = ud.string(forKey: Keys.whisperModel)
             ?? ProcessInfo.processInfo.environment["MARSIN_WHISPER_MODEL"]
             ?? Defaults.whisperModel
         
+        // Migrate the old macOS default, which does not match the bundled model or engine.
+        self.whisperModel = configuredModel == "ggml-large-v3-turbo-q5_0.bin"
+            ? Defaults.whisperModel : configuredModel
+        if configuredModel == "ggml-large-v3-turbo-q5_0.bin" {
+            ud.set(Defaults.whisperModel, forKey: Keys.whisperModel)
+        }
+
         // Silence audio during dictation (default: ON)
         if ud.object(forKey: Keys.silenceAudio) != nil {
             self.silenceAudioDuringDictation = ud.bool(forKey: Keys.silenceAudio)
@@ -126,7 +133,9 @@ public class SettingsManager: ObservableObject {
         if let v = env["LOCALAI_MODEL"] { localAIModel = v }
         if let v = env["OPENAI_MODEL"] { openAIModel = v }
         if let v = env["OPENAI_API_KEY"], !v.isEmpty { openAIAPIKey = v }
-        if let v = env["MARSIN_WHISPER_MODEL"] { whisperModel = v }
+        if let v = env["MARSIN_WHISPER_MODEL"] {
+            whisperModel = v == "ggml-large-v3-turbo-q5_0.bin" ? Defaults.whisperModel : v
+        }
         
         ud.set(true, forKey: Keys.hasSeededFromEnv)
         print("[SettingsManager] Seeded settings from .env")

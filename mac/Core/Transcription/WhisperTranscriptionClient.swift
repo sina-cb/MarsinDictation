@@ -21,6 +21,10 @@ public final class WhisperTranscriptionClient: ITranscriptionClient {
         }
         
         let params = WhisperParams(strategy: .greedy)
+        params.print_realtime = false
+        params.print_progress = false
+        params.print_timestamps = false
+        params.print_special = false
         params.language = .english  // Default to English — avoids auto-detect crash
         
         // Detect if Metal GPU is available; fall back to CPU on Intel/older Macs

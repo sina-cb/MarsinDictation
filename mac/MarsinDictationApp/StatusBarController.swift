@@ -28,6 +28,9 @@ class StatusBarController {
         let settingsItem = NSMenuItem(title: "Settings...", action: #selector(openSettings), keyEquivalent: ",")
         settingsItem.target = self
         menu.addItem(settingsItem)
+        let permissionItem = NSMenuItem(title: "Enable Auto-Paste…", action: #selector(enableAutoPaste), keyEquivalent: "")
+        permissionItem.target = self
+        menu.addItem(permissionItem)
         
         menu.addItem(NSMenuItem.separator())
         
@@ -48,6 +51,10 @@ class StatusBarController {
         }
     }
     
+    @objc private func enableAutoPaste() {
+        AutoPastePermission.request(openSettings: true)
+    }
+
     @objc private func openSettings() {
         if let window = settingsWindow {
             // Reuse existing window
@@ -62,8 +69,9 @@ class StatusBarController {
         
         let window = NSWindow(contentViewController: hostingController)
         window.title = "MarsinDictation Settings"
-        window.styleMask = [.titled, .closable]
-        window.setContentSize(NSSize(width: 420, height: 520))
+        window.styleMask = [.titled, .closable, .resizable]
+        window.setContentSize(NSSize(width: 480, height: 620))
+        window.contentMinSize = NSSize(width: 460, height: 400)
         window.center()
         window.isReleasedWhenClosed = false
         

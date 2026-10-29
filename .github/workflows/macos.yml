@@ -1,0 +1,83 @@
+name: macOS validation and signed package
+
+on:
+  pull_request:
+    paths: ['mac/**', 'devtool/**', '.github/workflows/macos.yml']
+  push:
+    branches: ['main', 'dev/mac-*']
+    paths: ['mac/**', 'devtool/**', '.github/workflows/macos.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Download integration test model
+        run: |
+          mkdir -p tmp/test-models
+          curl --fail --location --retry 3 -o tmp/test-models/ggml-base.en.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin
+      - name: Test download recovery and real offline transcription
+        run: |
+          say -o tmp/test-speech.aiff 'Testing dictation. The speech model is ready and transcription works.'
+          afconvert tmp/test-speech.aiff tmp/test-speech.wav -f WAVE -d LEI16@16000 -c 1
+          MODEL_TEST_REAL_MODEL="$PWD/tmp/test-models/ggml-base.en.bin" MODEL_TEST_AUDIO="$PWD/tmp/test-speech.wav" python3 devtool/test_mac_models.py
+          python3 -m unittest discover -s devtool -p 'test_deploy_*.py' -v
+      - name: Build universal app
+        run: |
+          brew install xcodegen
+          touch mac/Local.xcconfig
+          xcodegen generate --spec mac/project.yml --project mac/
+          xcodebuild -project mac/MarsinDictation.xcodeproj -scheme MarsinDictation -configuration Release -derivedDataPath tmp/ci-build 'ARCHS=x86_64 arm64' ONLY_ACTIVE_ARCH=NO CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES build
+
+  signed-package:
+    if: github.event_name != 'pull_request'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Import Developer ID certificate
+        env:
+          CERTIFICATE: ${{ secrets.MAC_CERTS_P12_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.MAC_CERTS_PASSWORD }}
+        run: |
+          test -n "$CERTIFICATE" && test -n "$CERTIFICATE_PASSWORD"
+          CERT_PATH="$RUNNER_TEMP/developer-id.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/build-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
+          printf '%s' "$CERTIFICATE" | base64 --decode > "$CERT_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH" login.keychain-db
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+          rm "$CERT_PATH"
+      - name: Sign, notarize and verify DMG
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_ID_EMAIL: ${{ secrets.APPLE_ID_EMAIL }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: python3 devtool/deploy.py mac --package --verbose
+      - name: Upload verified installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: MarsinDictation-macOS-signed-${{ github.sha }}
+          path: tmp/MarsinDictation.dmg
+          if-no-files-found: error
+      - name: Remove signing keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/build-signing.keychain-db" || true

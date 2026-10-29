@@ -1,5 +1,7 @@
 import Foundation
 import AVFoundation
+import AppKit
+import ApplicationServices
 
 public class DictationService: HotkeyDelegate, AudioCaptureDelegate {
     public static let shared = DictationService()
@@ -7,7 +9,9 @@ public class DictationService: HotkeyDelegate, AudioCaptureDelegate {
     private let hotkeyManager = HotkeyManager.shared
     private let audioCapture = AudioCapture()
     private let httpClient = GenericTranscriptionClient()
-    private var whisperClient: WhisperTranscriptionClient?
+    @MainActor private var modelTask: Task<WhisperTranscriptionClient, Error>?
+    @MainActor private var modelTaskName: String?
+    @MainActor private var isProcessing = false
     
     private let pasteboardInjector = PasteboardInjector()
     private let keystrokeInjector = KeystrokeInjector()
@@ -28,7 +32,15 @@ public class DictationService: HotkeyDelegate, AudioCaptureDelegate {
         print("[DictationService] Starting... (debugPlayback=\(debugPlayback))")
         
         // Load embedded whisper model if provider is embedded
-        loadWhisperModelIfNeeded()
+        Task { @MainActor in
+            guard SettingsManager.shared.provider == "embedded" else { return }
+            do {
+                _ = try await prepareWhisperModel(SettingsManager.shared.whisperModel)
+                RecordingHUDController.shared.showToast(text: "✔ Dictation ready", type: .success)
+            } catch {
+                showModelError(error)
+            }
+        }
         
         // Pre-request mic permission so first hold-to-record works immediately
         audioCapture.requestMicrophonePermission { granted in
@@ -41,28 +53,52 @@ public class DictationService: HotkeyDelegate, AudioCaptureDelegate {
         hotkeyManager.startMonitoring()
     }
     
-    private func loadWhisperModelIfNeeded() {
-        let sm = SettingsManager.shared
-        guard sm.provider == "embedded" else { return }
-        
-        let modelManager = WhisperModelManager.shared
-        let modelName = sm.whisperModel
-        
-        guard modelManager.isModelAvailable(modelName) else {
-            print("[DictationService] ❌ Embedded model '\(modelName)' not found in bundle or Application Support")
-            return
+    /// Share one in-flight preparation task; a changed filename loads on the next dictation.
+    @MainActor private func prepareWhisperModel(_ modelName: String) async throws -> WhisperTranscriptionClient {
+        if modelTaskName != modelName || modelTask == nil {
+            modelTaskName = modelName
+            modelTask = Task {
+                let manager = WhisperModelManager.shared
+                if !manager.isModelAvailable(modelName) {
+                    RecordingHUDController.shared.showToast(text: "↓ Downloading model…", type: .transcribing)
+                }
+                let url = try await manager.downloadModel(modelName) { completed, total in
+                    let message = total > 0
+                        ? "↓ Model: \(completed * 100 / total)%"
+                        : "↓ Model: \(completed / 1_000_000) MB"
+                    RecordingHUDController.shared.showToast(text: message, type: .transcribing)
+                }
+                RecordingHUDController.shared.showToast(text: "Loading speech model…", type: .transcribing)
+                return try await Task.detached(priority: .userInitiated) {
+                    let client = WhisperTranscriptionClient(modelURL: url)
+                    try client.loadModel()
+                    return client
+                }.value
+            }
         }
-        
+        let task = modelTask!
         do {
-            let client = WhisperTranscriptionClient(modelURL: modelManager.modelURL(for: modelName))
-            try client.loadModel()
-            self.whisperClient = client
-            print("[DictationService] ✅ Embedded whisper model loaded")
+            return try await task.value
         } catch {
-            print("[DictationService] ❌ Failed to load whisper model: \(error)")
+            // Clear failure so the next dictation retries, including after going back online.
+            if modelTaskName == modelName { modelTask = nil }
+            throw error
         }
     }
-    
+
+    @MainActor private func showModelError(_ error: Error) {
+        let message: String
+        if case TranscriptionError.apiError(let detail) = error { message = detail }
+        else { message = error.localizedDescription }
+        print("[DictationService] Model preparation failed: \(message)")
+        RecordingHUDController.shared.showToast(text: "⚠ Model unavailable", type: .error, duration: 5)
+        let alert = NSAlert()
+        alert.messageText = "Speech model unavailable"
+        alert.informativeText = "\(message)\n\nCheck your connection and model filename in Settings. Your next dictation will retry automatically."
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
     // MARK: - HotkeyDelegate (Hold-to-record)
     
     public func dictationHotkeyPressed() {
@@ -144,7 +180,11 @@ public class DictationService: HotkeyDelegate, AudioCaptureDelegate {
         RecordingHUDController.shared.showToast(text: "⏳ Transcribing...", type: .transcribing)
         
         // Send to transcription API
-        Task {
+        Task { @MainActor in
+            guard !isProcessing else { return }
+            isProcessing = true
+            defer { isProcessing = false }
+            var preparingModel = false
             do {
                 let sm = SettingsManager.shared
                 let config = sm.buildTranscriptionConfig()
@@ -152,14 +192,15 @@ public class DictationService: HotkeyDelegate, AudioCaptureDelegate {
 
                 let rawText: String
                 if sm.provider == "embedded" {
-                    guard let wClient = self.whisperClient else {
-                        throw TranscriptionError.apiError("Embedded whisper model not loaded. Place model file at: \(WhisperModelManager.shared.modelURL(for: sm.whisperModel).path)")
-                    }
+                    preparingModel = true
+                    let wClient = try await prepareWhisperModel(config.model)
+                    preparingModel = false
+                    RecordingHUDController.shared.showToast(text: "⏳ Transcribing...", type: .transcribing)
                     rawText = try await wClient.transcribe(wavData: wavData, config: config)
                 } else {
                     rawText = try await self.httpClient.transcribe(wavData: wavData, config: config)
                 }
-                print("[DictationService] ✅ Transcription: \(rawText)")
+                print("[DictationService] ✅ Transcription complete")
                 let cleaned = TextPostProcessor.process(rawText)
                 
                 let success = executeInjectionLadder(text: cleaned)
@@ -176,7 +217,8 @@ public class DictationService: HotkeyDelegate, AudioCaptureDelegate {
                 
             } catch {
                 print("[DictationService] ❌ Transcription error: \(error)")
-                RecordingHUDController.shared.showToast(text: "⚠ Transcription failed", type: .error, duration: 3.0)
+                if preparingModel { showModelError(error) }
+                else { RecordingHUDController.shared.showToast(text: "⚠ Transcription failed", type: .error, duration: 3.0) }
                 let provider = SettingsManager.shared.provider
                 let transcript = Transcript(text: "", provider: provider, model: "unknown", state: .failed_transcription)
                 TranscriptStore.shared.save(transcript)
