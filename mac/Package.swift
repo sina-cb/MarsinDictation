@@ -7,5 +7,6 @@ let package = Package(name: "DictationTranscription", platforms: [.macOS(.v12)],
     targets: [
         .target(name: "DictationTranscription", dependencies: ["SwiftWhisper"],
                 path: "Core/Transcription", exclude: ["GenericTranscriptionClient.swift"]),
-        .testTarget(name: "ModelTests", dependencies: ["DictationTranscription"], path: "Tests")
+        .testTarget(name: "ModelTests", dependencies: ["DictationTranscription"], path: "Tests", exclude: ["CorruptModelProbe"]),
+        .executableTarget(name: "CorruptModelProbe", dependencies: ["DictationTranscription"], path: "Tests/CorruptModelProbe")
     ])

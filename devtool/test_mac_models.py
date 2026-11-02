@@ -38,4 +38,7 @@ if __name__ == "__main__":
             env={**os.environ, "MODEL_TEST_BASE_URL": f"http://127.0.0.1:{server.server_port}"})
     finally:
         server.shutdown()
+    if result.returncode == 0:
+        result = subprocess.run(["swift", "run", "--package-path", str(ROOT / "mac"),
+            "--scratch-path", str(ROOT / "tmp/swift-tests"), "CorruptModelProbe"])
     raise SystemExit(result.returncode)

@@ -81,9 +81,9 @@ If you cannot use OpenAI on your machine due to network or policy restrictions, 
 3. Download a Whisper model to your LocalAI `models` directory.
 4. Ensure `LOCALAI_ENDPOINT` points to `http://localhost:3850`.
 
-## Windows local transcription API
+## Local transcription API (Windows and macOS)
 
-The Windows app serves embedded Whisper on `http://127.0.0.1:6976` while running.
+The Windows and macOS (1.0.5+) apps serve embedded Whisper on `http://127.0.0.1:6976` while running.
 `GET /health` reports readiness, API/app version, local backend, model basename and language.
 `POST /transcribe` accepts raw `Content-Type: audio/wav` with Content-Length: 16 kHz,
 16-bit PCM mono WAV, at most 4 MiB and 120 seconds. It returns JSON
@@ -97,7 +97,7 @@ Browser Origin headers and cross-site requests are rejected, with no CORS allowa
 Use a native localhost client. A port collision disables the API while dictation continues.
 Hotkey and API inference share the same model/gate when embedded is selected.
 See the [supported API contract and Windows update guide](docs/windows-local-api.md)
-for request examples, every error, deadlines, startup and recovery instructions.
+for Windows request examples, every error and deadlines. See the [macOS local API guide](docs/mac-local-api.md) for Mac startup, build and update instructions.
 
 ## Key Features
 

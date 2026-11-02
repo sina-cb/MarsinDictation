@@ -3,7 +3,7 @@
 Windows 1.0.3 includes API version 1 in the normal desktop application and installer.
 Launch MarsinDictation normally from Start or the desktop shortcut. While the tray app
 is running it listens only at `http://127.0.0.1:6976`. Quitting the tray app stops it.
-This is not a Windows service. macOS does not implement this endpoint.
+This is not a Windows service. macOS 1.0.5 implements the same API contract; see [macOS local API](mac-local-api.md).
 
 ## Requests and responses
 

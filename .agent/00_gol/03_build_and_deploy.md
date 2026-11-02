@@ -9,7 +9,7 @@ This document defines the build and deployment process for all MarsinDictation p
 | Platform | Status | Build System | Notes |
 |----------|--------|-------------|-------|
 | **Windows** | 🟡 Phase 0 | .NET 8+ / `dotnet` CLI | WPF tray app — see [Windows v0 Design](../01_designs/01_win_design_v0.md) |
-| **macOS** | 🔴 No code yet | Swift / Xcode / `xcodebuild` | Swift app — see [macOS v0 Design](../01_designs/02_mac_design_v0.md) |
+| **macOS** | Implemented; 1.0.5/build 5 local API | Swift / XcodeGen / `xcodebuild` | Developer ID distribution; see [macOS guide](../../mac/README.md) |
 | **iOS** | 🔴 Not started | Swift / Xcode | Custom keyboard extension — future |
 | **Android** | 🔴 Not started | Kotlin / Gradle | Custom IME — future |
 
@@ -29,6 +29,8 @@ This script handles the full lifecycle for any platform:
 3. **Install** — install or deploy to the target device/system
 
 ### CLI Design
+
+The overview below describes the original cross-platform CLI design. For current macOS commands and destructive `--clean` behavior, use the macOS section below and `python3 devtool/deploy.py --help`.
 
 ```
 python devtool/deploy.py <platform> [options]
@@ -82,16 +84,50 @@ Build output: `windows/MarsinDictation.App/bin/`
 
 #### macOS
 
-```
-python devtool/deploy.py mac
+**Operator install rule (2026-11-02):** The installed app must be Developer ID
+Application signed, notarized, and accepted by Gatekeeper unless the user explicitly
+requests a development build. Apple Development and ad-hoc builds are permitted for
+compilation/testing; they do not fulfill a fully signed installation request.
+Accessibility is a separate macOS permission and still needs user authorization.
+
+```sh
+# Development compilation; does not install
+python3 devtool/deploy.py mac --build
+# Distribution DMG; does not replace the installed app
+python3 devtool/deploy.py mac --package
+# Distribution packaging plus direct /Applications replacement
+python3 devtool/deploy.py mac --install
 ```
 
-Steps:
-1. Check Xcode and Swift toolchain
-2. `xcodebuild` with appropriate scheme
-3. Copy `.app` to `/Applications/` (optional)
+macOS builds use Release. Packaging builds universal arm64/x86_64 into
+`tmp/mac-build/`; the DMG is `tmp/MarsinDictation.dmg`. Distribution commands require
+a Developer ID Application certificate and `APPLE_TEAM_ID`, `APPLE_ID_EMAIL`,
+`APPLE_APP_SPECIFIC_PASSWORD`. They sign the app with hardened runtime/timestamp,
+verify its signature, sign/notarize/staple/validate the DMG, and assess the DMG with
+Gatekeeper. Failures stop packaging. `--local-sign` explicitly makes an ad-hoc,
+unnotarized development package; never substitute it when distribution is requested.
 
-Build output: `mac/build/`
+When local distribution credentials are unavailable, use `.github/workflows/macos.yml`
+with `workflow_dispatch` on the exact authorized branch, recording the run's full
+commit SHA. Its signed-package job uses existing encrypted repository secrets and
+uploads `MarsinDictation-macOS-signed-<SHA>`. Pull requests only validate/build;
+trusted pushes to `main`/`dev/mac-*` and manual dispatch also package. No release or
+tag is created. Check both validation and signed-package job results.
+
+For an existing installation, prefer `--package` or the CI artifact, then follow the
+[verified update procedure](../../mac/README.md#updating). Before replacing anything,
+verify the DMG signature and stapled ticket, and the mounted app's Developer ID,
+strict signature, version/build, and Gatekeeper acceptance. Keep one private rollback
+copy, quit the old app/clients, replace only the app bundle, and verify the installed
+copy and API. Preserve settings, Keychain, transcript history, and downloaded models.
+The current `--install` path replaces the destination directly: it does not create a
+rollback or explicitly assess the extracted app with Gatekeeper. Supply those checks
+before replacement; do not treat packaging success alone as installation proof.
+
+Remove only identified superseded app copies after successful verification; retain
+one rollback outside indexed Applications folders. **Never use `mac --clean` to
+clean up old installs**: it uninstalls the app and deletes Application Support
+(including history/models), preferences, caches, and DerivedData.
 
 #### iOS
 

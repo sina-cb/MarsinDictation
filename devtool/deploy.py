@@ -548,6 +548,31 @@ def deploy_windows(args):
             do_run(config, d, hold=args.hold)
         return code
 
+def bundle_mac_license_notices(app_dir, package_build_dir):
+    """Stage required notices before signing; missing dependency notices fail packaging closed."""
+    import shutil
+    dependency = Path(package_build_dir) / "SourcePackages" / "checkouts" / "SwiftWhisper"
+    sources = {
+        "MarsinDictation-MIT.txt": ROOT / "LICENSE",
+        "SwiftWhisper-MIT.txt": dependency / "LICENSE",
+        "whisper.cpp-MIT.txt": dependency / "whisper.cpp" / "LICENSE",
+    }
+    missing = [name for name, source in sources.items() if not source.is_file()]
+    if missing:
+        fail("Cannot package without license notices: " + ", ".join(missing))
+        return False
+    destination = Path(app_dir) / "Contents" / "Resources" / "Licenses"
+    try:
+        destination.mkdir(parents=True, exist_ok=True)
+        for name, source in sources.items():
+            shutil.copyfile(source, destination / name)
+    except OSError as error:
+        fail("Could not bundle required license notices: " + str(error))
+        return False
+    ok("Bundled project, SwiftWhisper and whisper.cpp MIT notices before signing")
+    return True
+
+
 def notarize_mac_artifact(artifact, apple_email, apple_password, apple_team_id):
     """Fail closed: success requires Apple acceptance and a validated stapled ticket.
 
@@ -861,6 +886,10 @@ def deploy_mac(args):
                     shutil.copy2(str(model_file), str(model_dst))
                     size_mb = model_file.stat().st_size // (1024 * 1024)
                     ok(f"Bundled model: {model_file.name} ({size_mb} MB)")
+
+            # All distribution contents, including required notices, must precede signing.
+            if not d and not bundle_mac_license_notices(dst_app, package_build_dir):
+                return 1
 
             # Re-sign the app after adding files (bundling invalidates the signature)
             if not d:
