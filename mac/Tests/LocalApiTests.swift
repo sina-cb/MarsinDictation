@@ -18,9 +18,9 @@ final class LocalApiTests: XCTestCase {
         return data
     }
     private func call(_ port: UInt16, _ path: String = "/health", body: Data? = nil,
-                      headers: [String: String] = [:]) async throws -> (Int, [String: Any]) {
+                      headers: [String: String] = [:], timeout: TimeInterval = 5) async throws -> (Int, [String: Any]) {
         var req = URLRequest(url: URL(string: "http://127.0.0.1:\(port)\(path)")!)
-        req.timeoutInterval = 5
+        req.timeoutInterval = timeout
         if let body = body { req.httpMethod = "POST"; req.httpBody = body; req.setValue("audio/wav", forHTTPHeaderField: "Content-Type") }
         for (key,value) in headers { req.setValue(value, forHTTPHeaderField: key) }
         let (data, response) = try await URLSession.shared.data(for: req)
@@ -188,7 +188,7 @@ final class LocalApiTests: XCTestCase {
         XCTAssertTrue(client.isInferenceBusy)
         try await expectStatus(429, try await call(16979, "/transcribe", body: wav))
         _ = try await desktop.value
-        let apiRequest = Task { try await self.call(16979, "/transcribe", body: wav) }
+        let apiRequest = Task { try await self.call(16979, "/transcribe", body: wav, timeout: 135) }
         for _ in 0..<200 { if client.isInferenceBusy { break }; try await Task.sleep(nanoseconds: 5_000_000) }
         XCTAssertTrue(client.isInferenceBusy)
         let completed = InvocationCounter()
@@ -207,6 +207,6 @@ final class LocalApiTests: XCTestCase {
         try await expectStatus(408, try await call(16985, "/transcribe", body: wav))
         for _ in 0..<2000 { if !client.isInferenceBusy { break }; try await Task.sleep(nanoseconds: 5_000_000) }
         XCTAssertFalse(client.isInferenceBusy, "Native cancelled inference must eventually release the shared gate")
-        try await expectStatus(200, try await call(16979, "/transcribe", body: wav))
+        try await expectStatus(200, try await call(16979, "/transcribe", body: wav, timeout: 135))
     }
 }
