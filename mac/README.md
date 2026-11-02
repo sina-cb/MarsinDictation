@@ -301,3 +301,7 @@ Run `python3 devtool/test_mac_models.py` from the repository root. Tests use a l
 The `macOS validation and signed package` workflow runs regression tests and a universal Intel/Apple Silicon build on pull requests. Trusted pushes to `main` or `dev/mac-*` also build a Developer ID signed DMG, submit it to Apple, staple and validate its notarization ticket, and check Gatekeeper acceptance before uploading the installer artifact. No GitHub release or tag is created by this workflow.
 
 For signed local packaging, set `APPLE_TEAM_ID`, `APPLE_ID_EMAIL`, and `APPLE_APP_SPECIFIC_PASSWORD`, install a Developer ID Application certificate, then run `python3 devtool/deploy.py mac --package`. Missing credentials or any failed signing/notarization step stops packaging. Use `--local-sign` only for development packages, which are not notarized. Distribution packages never embed developer `.env` files.
+
+## Local upload API (1.0.5)
+
+While the menu bar app runs, native clients can use `http://127.0.0.1:6976/health` and upload normalized WAV to `/transcribe`. The API uses an existing local embedded model independently of the desktop provider and shares inference with hotkeys. It never downloads models or captures, injects, or stores user content. See [the API/build/update guide](../docs/mac-local-api.md).

@@ -70,7 +70,7 @@ public class DictationService: HotkeyDelegate, AudioCaptureDelegate {
                 }
                 RecordingHUDController.shared.showToast(text: "Loading speech model…", type: .transcribing)
                 return try await Task.detached(priority: .userInitiated) {
-                    let client = WhisperTranscriptionClient(modelURL: url)
+                    let client = WhisperTranscriptionClient.shared(modelURL: url)
                     try client.loadModel()
                     return client
                 }.value
