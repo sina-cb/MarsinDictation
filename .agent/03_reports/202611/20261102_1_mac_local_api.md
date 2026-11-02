@@ -1,5 +1,7 @@
 # macOS local API 1.0.5 — 2026-11-02
 
+**Superseded installation status:** the later [Developer ID/notarized installation report](20261102_2_notarized_install.md) records the current Gatekeeper-accepted app and actual Accessibility grant. The ad-hoc artifact and installation evidence below describe the earlier preparation stage.
+
 macOS 1.0.5 build 5 was built, installed at `/Applications/MarsinDictation.app`, and
 launched once after the user's explicit update authorization and Astra review. The
 installed API is ready and transcribed the repository hello/world fixture locally.
@@ -69,7 +71,7 @@ host survival and API503. It never modifies the user's model cache.
 - `git diff --check`: clean. No user settings/history/model data or OS permissions changed.
 
 Local artifact: `tmp/mac-api-release/Build/Products/Release/MarsinDictation.app`.
-Private rollback: `tmp/rollback-mac-1.0.4-20261102/` (untracked, never publish).
+Rollback records are private and untracked; retain only the verified notarized distribution rollback after cleanup.
 Instructions/limits: `docs/mac-local-api.md`.
 
 Intel compiled but not executed on this Apple Silicon host. Hotkey/microphone/injection,

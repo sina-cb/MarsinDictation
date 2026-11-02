@@ -80,6 +80,13 @@ Preserve settings, Keychain, history, and models; remove only superseded app cop
 after validating the installed app and health/version. `mac --clean` deletes user
 data and must never be used for this cleanup.
 
+Prefer a signed artifact and successful validation from the same authorized commit.
+If a later commit changes only tests, a source-equivalent artifact may be used only with
+explicit proof: record both full SHAs and job/run links, verify all production source,
+dependencies and build/signing/package inputs are unchanged, and require successful
+signed-package and validation jobs plus the local signature/ticket/Gatekeeper checks.
+Report this dual-commit evidence transparently; do not call it an all-green single run.
+
 Only when the user explicitly requests a development installation may the ad-hoc
 artifact above replace the app. Its build process itself neither installs nor
 stops/restarts an app. Accessibility may need granting again after identity changes;

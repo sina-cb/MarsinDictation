@@ -12,5 +12,5 @@ It is kept public to allow end-to-end transparency in how the project design cho
 - **`03_reports/`**
   Historical action logs summarizing completed workloads, performance checks, and gap analyses spanning Windows and macOS implementations.
 
-Latest macOS preparation: [1.0.5 local API validation and artifact](03_reports/202611/20261102_1_mac_local_api.md).
-The reviewed1.0.5/build5 app is installed and its local API was verified with the repository hello/world fixture. Human final acceptance remains pending.
+Latest macOS installation: [1.0.5 Developer ID/notarization and installed verification](03_reports/202611/20261102_2_notarized_install.md).
+The installed app is Gatekeeper accepted and reports Accessibility granted. The earlier development installations are superseded; normal installs require a verified notarized distribution artifact.
