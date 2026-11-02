@@ -4,6 +4,7 @@ import importlib.util
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
+import tempfile
 from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location("deploy_mac_tests", Path(__file__).with_name("deploy.py"))
@@ -12,6 +13,35 @@ spec.loader.exec_module(deploy)
 
 
 class MacSigningTests(unittest.TestCase):
+    def test_bundles_all_three_notices_with_exact_content(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            build = root / "build"
+            dependency = build / "SourcePackages/checkouts/SwiftWhisper"
+            (dependency / "whisper.cpp").mkdir(parents=True)
+            source_texts = {
+                root / "LICENSE": "MIT License\nProject copyright\n",
+                dependency / "LICENSE": "MIT License\nSwiftWhisper copyright\n",
+                dependency / "whisper.cpp/LICENSE": "MIT License\nwhisper.cpp copyright\n",
+            }
+            for source, content in source_texts.items(): source.write_text(content)
+            app = root / "MarsinDictation.app"
+            with patch.object(deploy, "ROOT", root):
+                self.assertTrue(deploy.bundle_mac_license_notices(app, build))
+            notices = app / "Contents/Resources/Licenses"
+            self.assertEqual(set(p.name for p in notices.iterdir()),
+                {"MarsinDictation-MIT.txt", "SwiftWhisper-MIT.txt", "whisper.cpp-MIT.txt"})
+            self.assertEqual(set(p.read_text() for p in notices.iterdir()), set(source_texts.values()))
+
+    def test_missing_dependency_notice_fails_without_staging_partial_notices(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "LICENSE").write_text("MIT License\nProject copyright\n")
+            app = root / "MarsinDictation.app"
+            with patch.object(deploy, "ROOT", root):
+                self.assertFalse(deploy.bundle_mac_license_notices(app, root / "build"))
+            self.assertFalse(app.exists(), "Missing notices must stop packaging before app mutation/signing")
+
     def test_missing_release_credentials_fails_before_build(self):
         args = argparse.Namespace(install=False, package=True, local_sign=False, clean=False,
                                   verbose=False, dry_run=False)

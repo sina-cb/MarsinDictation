@@ -68,12 +68,23 @@ locally. It uses no signing identity credentials or notarization, includes no de
 upstream revisions when not cached. This is a local development artifact, not a notarized
 installer. Keep the licenses with the .app when copying it.
 
-For a deliberate update, quit dependent clients and the installed app, preserve the
-previous .app for rollback, then copy the built .app into your chosen Applications
-folder. Settings/history/models remain in existing user storage. Launch the replacement
-and check health/version. Ad-hoc changes may require granting Accessibility again for
-auto-paste; local upload API requires neither microphone nor Accessibility. This build
-process itself neither installs nor stops/restarts an app.
+For a normal installed-app update, use a Developer ID Application signed,
+notarized distribution artifact and require Gatekeeper acceptance. Do not replace
+a requested fully signed installation with this ad-hoc development build.
+Use `python3 devtool/deploy.py mac --package` with distribution credentials, or the
+signed CI artifact for the exact authorized branch/commit. Follow the
+[verified update procedure](../mac/README.md#updating): check the DMG ticket/signature
+and mounted app's identity/signature/version/Gatekeeper status before replacement,
+keep one private rollback, quit clients/app, and replace only the app bundle.
+Preserve settings, Keychain, history, and models; remove only superseded app copies
+after validating the installed app and health/version. `mac --clean` deletes user
+data and must never be used for this cleanup.
+
+Only when the user explicitly requests a development installation may the ad-hoc
+artifact above replace the app. Its build process itself neither installs nor
+stops/restarts an app. Accessibility may need granting again after identity changes;
+it is separate from signing/notarization. The local upload API requires neither
+microphone nor Accessibility permission.
 
 ## Validation
 

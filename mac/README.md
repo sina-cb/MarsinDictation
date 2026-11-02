@@ -18,7 +18,7 @@ python3 devtool/deploy.py mac
 
 # Build and run WITHOUT Xcode UI
 python3 devtool/deploy.py mac --build
-open ~/Library/Developer/Xcode/DerivedData/MarsinDictation-*/Build/Products/Debug/MarsinDictation.app
+open ~/Library/Developer/Xcode/DerivedData/MarsinDictation-*/Build/Products/Release/MarsinDictation.app
 
 # Only regenerate + open in Xcode (no build)
 python3 devtool/deploy.py mac --run
@@ -33,7 +33,7 @@ You can build and launch entirely from the terminal — no Xcode window needed:
 python3 devtool/deploy.py mac --build
 
 # 2. Launch the built app directly
-open ~/Library/Developer/Xcode/DerivedData/MarsinDictation-*/Build/Products/Debug/MarsinDictation.app
+open ~/Library/Developer/Xcode/DerivedData/MarsinDictation-*/Build/Products/Release/MarsinDictation.app
 ```
 
 The app runs as a menu bar icon. Hold **Control+Option** to dictate.
@@ -42,19 +42,24 @@ The app runs as a menu bar icon. Hold **Control+Option** to dictate.
 
 ## Installation (DMG)
 
-To install MarsinDictation as a proper macOS app in `/Applications`:
+Installed distribution apps must be **Developer ID Application signed, notarized,
+and accepted by Gatekeeper** unless the user explicitly requests a development
+build. Apple Development/ad-hoc builds are for development and testing.
 
 ```bash
-python3 devtool/deploy.py mac --install --local-sign
+# Create a signed, notarized DMG without replacing an installed app
+python3 devtool/deploy.py mac --package
+# Package and install directly (see update safeguards below first)
+python3 devtool/deploy.py mac --install
 ```
 
-This will:
-1. Build a **Release** binary (ad-hoc signed)
-2. Keep developer `.env` files and API keys out of the app bundle
-3. Create a compressed DMG at `tmp/MarsinDictation.dmg`
-4. **Install directly to `/Applications/MarsinDictation.app`**
-5. Preserve existing Accessibility grants; the app requests access at launch if needed
-6. Auto-open the DMG (for backup/distribution)
+Both commands require a Developer ID Application certificate plus `APPLE_TEAM_ID`,
+`APPLE_ID_EMAIL`, and `APPLE_APP_SPECIFIC_PASSWORD`. They create a universal Release
+app and `tmp/MarsinDictation.dmg`, exclude developer `.env` files, verify the app
+signature, and sign/notarize/staple/validate/Gatekeeper-assess the DMG. Missing
+credentials or failed checks stop packaging. `--install` also replaces
+`/Applications/MarsinDictation.app` and opens the DMG. `--local-sign` instead creates
+an ad-hoc, unnotarized development package; use it only when explicitly requested.
 
 ### Post-Install
 
@@ -70,17 +75,32 @@ This will:
 
 ### Updating
 
-Run `--install` again. It replaces the app in `/Applications` and creates a fresh DMG. Existing Accessibility grants are preserved when the signing identity stays the same.
+Use `--package` or a signed CI artifact so verification precedes replacement.
+The current `--install` command does not save a rollback or explicitly Gatekeeper-assess
+the extracted app; perform these safeguards yourself:
+
+1. Record the source commit, artifact/run, app version/build, and Developer ID team.
+   Verify the DMG with `codesign --verify --strict`, `xcrun stapler validate`, and
+   `spctl --assess --type open --context context:primary-signature --verbose=2`.
+2. Mount the DMG read-only. Check the contained app with `codesign --display --verbose=4`
+   (Developer ID Application authority and expected TeamIdentifier),
+   `codesign --verify --deep --strict`, and
+   `spctl --assess --type execute --verbose=2`. Require acceptance from a notarized
+   Developer ID source and confirm the intended version/build before replacement.
+3. Quit dependent API clients and the running app. Keep one private rollback copy
+   outside indexed Applications folders, then replace only `/Applications/MarsinDictation.app`.
+   Preserve UserDefaults/preferences, Keychain, Application Support/history, and model files.
+4. Recheck the installed bundle's signature, Gatekeeper acceptance, and version/build;
+   launch that exact path and verify API health/version and a fixture transcription.
+   Accessibility and microphone permissions remain separate OS checks.
 
 ### Clean Spotlight Duplicates
 
-If you see multiple MarsinDictation entries in Spotlight after development builds:
-```bash
-# Remove DerivedData build copies
-rm -rf ~/Library/Developer/Xcode/DerivedData/MarsinDictation-*/Build/Products/*/MarsinDictation.app
-# Rebuild Spotlight index (requires password)
-sudo mdutil -E /
-```
+After the replacement passes verification, remove only identified superseded
+MarsinDictation `.app` copies (including old DerivedData build copies). Keep the active
+`/Applications` app and one private rollback. Confirm each path before deletion;
+do not delete user storage. Never use `python3 devtool/deploy.py mac --clean` for
+old-install cleanup: it deletes the app, settings, history/models, caches, and DerivedData.
 
 ### Regenerating the Icon
 
@@ -88,7 +108,7 @@ If you change `icon.png`, regenerate the app icon:
 
 ```bash
 ./devtool/build_icon.sh
-python3 devtool/deploy.py mac --install --local-sign
+python3 devtool/deploy.py mac --package
 ```
 
 ---
@@ -114,7 +134,7 @@ On first run, settings are seeded from `.env` if present (one-time migration). A
 
 The Xcode project (`.xcodeproj`) is **auto-generated** by [XcodeGen](https://github.com/yonaskolb/XcodeGen) from `project.yml` and is **gitignored**. Code signing is configured via a `Local.xcconfig` file that is also gitignored — your personal team ID never enters the repo.
 
-### First-Time Setup
+### Development Signing Setup
 
 1. **Copy the example config:**
 
@@ -132,7 +152,7 @@ The Xcode project (`.xcodeproj`) is **auto-generated** by [XcodeGen](https://git
 3. **Build the project** — the deploy script runs XcodeGen automatically:
 
    ```bash
-   python3 devtool/deploy.py mac --install --local-sign
+   python3 devtool/deploy.py mac --build
    ```
 
 > **Note:** Without `Local.xcconfig`, builds will still work but use ad-hoc signing. Xcode UI builds require `Local.xcconfig` to resolve automatic signing.
@@ -158,13 +178,17 @@ If you don't have one:
 
 ### Build Signing Behavior
 
-| Context | Signing | Accessibility |
-|---------|---------|---------------|
-| `--install` | Ad-hoc (`-`) | Resets on each install; re-grant in System Settings |
-| `--build` / default | Release, ad-hoc (`-`) | Same binary identity per build path |
-| Xcode (⌘R) | Apple Development (from `Local.xcconfig`) | Persists across builds |
+| Context | Signing | Installation use |
+|---------|---------|------------------|
+| `--package` / `--install` | Developer ID Application; notarized DMG | Distribution; verify extracted/installed app too |
+| `--package --local-sign` / `--install --local-sign` | Ad-hoc (`-`), no notarization | Explicit development use only |
+| `--build` / default / Xcode | Release CLI build; signing from project/`Local.xcconfig` | Development compilation/testing |
 
-> **Note:** Ad-hoc builds can lose Accessibility trust when replaced. Developer ID signed distribution builds preserve a stable signing identity. The installer does not reset permissions.
+Accessibility is an OS permission independent of notarization. Development apps can
+also receive it. A stable signing identity helps preserve trust across updates;
+a changed identity or ad-hoc replacement may require granting access again. The
+installer does not reset permissions, and signing does not grant them automatically.
+
 
 ---
 
@@ -298,7 +322,7 @@ Run `python3 devtool/test_mac_models.py` from the repository root. Tests use a l
 
 ## Signed distribution builds
 
-The `macOS validation and signed package` workflow runs regression tests and a universal Intel/Apple Silicon build on pull requests. Trusted pushes to `main` or `dev/mac-*` also build a Developer ID signed DMG, submit it to Apple, staple and validate its notarization ticket, and check Gatekeeper acceptance before uploading the installer artifact. No GitHub release or tag is created by this workflow.
+The `macOS validation and signed package` workflow runs regression tests and a universal Intel/Apple Silicon build on pull requests. Trusted pushes to `main` or `dev/mac-*`, and manual `workflow_dispatch` on the selected branch, also build a Developer ID signed DMG, submit it to Apple, staple and validate its notarization ticket, and check Gatekeeper acceptance before uploading the installer artifact. No GitHub release or tag is created by this workflow. When using CI to install a branch build, record the run's full commit SHA, require both jobs to pass, and download `MarsinDictation-macOS-signed-<SHA>` from that run. The existing encrypted repository secrets supply signing/notarization credentials; do not expose or copy their values into documentation. Follow the update checks above before replacing the installed app.
 
 For signed local packaging, set `APPLE_TEAM_ID`, `APPLE_ID_EMAIL`, and `APPLE_APP_SPECIFIC_PASSWORD`, install a Developer ID Application certificate, then run `python3 devtool/deploy.py mac --package`. Missing credentials or any failed signing/notarization step stops packaging. Use `--local-sign` only for development packages, which are not notarized. Distribution packages never embed developer `.env` files.
 
