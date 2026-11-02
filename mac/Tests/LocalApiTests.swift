@@ -205,7 +205,11 @@ final class LocalApiTests: XCTestCase {
             transcribe: { try await client.tryTranscribe(wavData: $0, config: config) })
         XCTAssertTrue(expiring.tryStart()); defer { expiring.stop() }
         try await expectStatus(408, try await call(16985, "/transcribe", body: wav))
-        for _ in 0..<2000 { if !client.isInferenceBusy { break }; try await Task.sleep(nanoseconds: 5_000_000) }
+        // Native cancellation is cooperative; keep ownership until completion, within the API/client budget.
+        let releaseDeadline = ProcessInfo.processInfo.systemUptime + 135
+        while client.isInferenceBusy && ProcessInfo.processInfo.systemUptime < releaseDeadline {
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
         XCTAssertFalse(client.isInferenceBusy, "Native cancelled inference must eventually release the shared gate")
         try await expectStatus(200, try await call(16979, "/transcribe", body: wav, timeout: 135))
     }
